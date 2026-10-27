@@ -45,7 +45,11 @@ scoring rule, position limits, fees, tick size, whether bots are visible, number
 
 ### 1.2 Upcoming / recent dates seen
 
-- **London — Wed 4 Nov 2026, 17:30–22:00, 1 Soho Place** ([page](https://www.gresearch.com/events/london-quant-challenge-2026/)).
+- **Our event: ETH Zürich — Tue 27 Oct 2026, 17:30–21:30, Hauptgebäude, Rämistrasse 101**
+  ([page](https://www.gresearch.com/events/eth-zurich-quant-challenge-2026/)). "Cointegration
+  challenge … unseen, real world data sets", data provided at the event. Team size and laptop
+  requirements not stated — bring charged laptops + chargers anyway.
+- London — Wed 4 Nov 2026, 17:30–22:00, 1 Soho Place ([page](https://www.gresearch.com/events/london-quant-challenge-2026/)).
 - Oxford 15 Oct 2026, Berkeley 5 Oct 2026 (past). EPFL 2024 drew 50+ PhD students
   ([SIAM EPFL](https://siam.epfl.ch/2024/10/23/g-research-quant-finance-workshop-wednesday-16th-october-2/)).
 
@@ -305,6 +309,19 @@ last-known-good version, calls the kill decision.
 
 **Cadence:** submit the safe baseline within the first 10 minutes → read results → change **one**
 thing → resubmit. Keep `submissions/round-N-vK.py` with a one-line note on each.
+
+**Kit commands when the data arrives** (save it as `data/round1.csv`, wide or long CSV):
+
+```bash
+uv run python scripts/screen_pairs.py data/round1.csv            # which pairs are real? (verdict column)
+uv run python scripts/sweep_pair.py data/round1.csv --y A --x B  # params by train plateau, OOS check
+# write cfg.json from the printed params, then:
+uv run python scripts/make_submission.py --config cfg.json --out submissions/round1-v1.py
+```
+
+If the platform wants code in its own format, keep `src/gqc/core.py` logic and adapt only the
+bottom ADAPTER block of the generated file. If their example uses a static hedge ratio and fixed
+bands, our first improvement is Kalman/EWM hedge + exit at mean + stop at |z| > 4.
 
 ---
 

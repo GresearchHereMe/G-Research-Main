@@ -74,7 +74,7 @@ Every file pasted into the competition platform must:
 
 | Layer | Protects against | Where | Status |
 |---|---|---|---|
-| GitHub branch protection / ruleset | direct pushes, self-merge, unreviewed merges | repo settings | **Unavailable**: org is on the free plan and the repo is private (API returns 403 "Upgrade to GitHub Pro"). Needs GitHub Team, or the repo made public (not recommended). |
+| GitHub branch protection / ruleset | direct pushes, self-merge, unreviewed merges | repo settings | **Unavailable**: org is on the free plan and the repo is private (API returns 403 "Upgrade to GitHub Pro"). Decision 2026-10-27: no upgrade; rely on the layers below. |
 | `.githooks/pre-commit`, `.githooks/pre-push` | human commits on / pushes to `main` | local, enable with `git config core.hooksPath .githooks` | active once enabled per clone |
 | `.claude/hooks/guard_main.py` | agent commits/pushes/merges/approvals on `main` | `.claude/settings.json` PreToolUse hook | active |
 | Alpaca trading-tool deny list | agents placing real/paper orders | `.claude/settings.json` permissions | active |
