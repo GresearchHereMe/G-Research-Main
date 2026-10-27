@@ -17,6 +17,12 @@ from gqc import overfit
 Strategy = Callable[..., Mapping[str, np.ndarray]]
 
 
+def max_drawdown(pnl: np.ndarray) -> float:
+    """Largest loss from a previous equity peak, including the zero starting equity."""
+    equity = np.concatenate([[0.0], np.cumsum(pnl)])
+    return float(np.max(np.maximum.accumulate(equity) - equity))
+
+
 def _ffill(prices: np.ndarray) -> np.ndarray:
     p = np.asarray(prices, float).copy()
     for t in range(1, len(p)):

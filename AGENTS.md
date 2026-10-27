@@ -19,7 +19,7 @@ roughly 2 h of actual play. Interface, scoring, limits and fees are **unknown un
 | Event structure | Lever | How / tool |
 |---|---|---|
 | Unseen data, short time | Speed of the observe→validate loop | `diagnose.py` → research template → `evaluate_algo.py` (§5) |
-| One dataset, many ideas | Don't fool ourselves | PBO + Deflated Sharpe gate over **all** trials (§6) |
+| One dataset, many ideas | Don't fool ourselves | Current-grid PBO; DSR/MinBTL count recorded trials; disclose historical-return gaps (§6) |
 | Per-product position limits | **Use all capacity**: run every validated edge on every product at once; uncorrelated edges add PnL linearly, Sharpe ≈ √k | §10 |
 | Limits bind, not risk appetite | Validated edge → trade at **full limits** | sizing policy §8 |
 | Costs / spread / fill rules | Trading frequency + no-trade band chosen on 2× costs | §9 |
@@ -57,7 +57,7 @@ uv run python scripts/make_practice_data.py data/practice_book.csv --book
 ```
 templates/skeleton.py           paste-ready shell: state, LIMITS, SIZE_FRACTION, RISK gate, never-raise
 templates/research_template.py  strategy(prices, **params) + GRID; prints ranking + overfit verdict
-src/gqc/pipeline.py             gates G0-G4, frequency/band search, GO / GO-REDUCED / NO-GO
+src/gqc/pipeline.py             gates G0-G5, plateau/frequency/band search, GO / GO-REDUCED / NO-GO
 src/gqc/overfit.py              PBO (CSCV), PSR, Deflated Sharpe, expected max Sharpe, MinBTL
 src/gqc/research.py             grid runner + positions_pnl + overfit_report
 src/gqc/replay.py               replays a pasted file (bare exec) over prices
@@ -100,7 +100,7 @@ Agents never skip S2 or S3. A strategy that has not passed G0 **never** trades.
 | Gate | Test | Type |
 |---|---|---|
 | G0 integrity | No lookahead (future prices perturbed at 3 cut points, ± directions → past positions unchanged), deterministic, finite positions | hard |
-| G1 overfit | PBO via CSCV, Deflated Sharpe, MinBTL over all configs × frequencies × bands → OK / CAUTION / REJECT | hard if REJECT |
+| G1 overfit | PBO over the current grid × frequencies × bands; DSR/MinBTL include recorded prior trial counts → OK / CAUTION / REJECT | hard if REJECT |
 | G2 robustness | Best config still Sharpe > 0 and ≥ 50 % of base at **2× costs** and at **lag + 1**; total PnL > 0 | hard |
 | G3 stability | Profitable in ≥ 3 of 4 time slices | soft |
 | G4 risk | Development PnL ≥ 2 × max drawdown | soft |
@@ -109,6 +109,13 @@ Agents never skip S2 or S3. A strategy that has not passed G0 **never** trades.
 Selection, PBO/DSR and G1–G4 use only the development window. G0 inspects the **raw**
 strategy output. Every run of `evaluate_algo.py` / `sweep_pair.py` appends to
 `runs/trials.jsonl`; later runs on the same data file add those trials to N automatically.
+Selection uses median development Sharpe across immediate numeric-grid neighbours at **2×
+costs**; categorical settings stay fixed, and ties prefer the candidate's own stressed Sharpe.
+The direct research-template command delegates to the same evaluator. PBO covers only the
+current return matrix: the ledger stores counts, not historical returns. DSR uses the current
+grid's Sharpe dispersion with the accumulated count. Disclose these limits; a count alone
+does not establish an all-history PBO. Manual trials and overlapping/reformatted datasets
+still require the research log.
 
 **Decision → size:** hard fail → **NO-GO, 0 %**. CAUTION or a soft fail → **GO-REDUCED, 50 %
 of limits**. All pass → **GO, 100 %**. Thresholds: PBO ≤ 0.2 & DSR ≥ 0.95 & T ≥ MinBTL = OK;
@@ -120,14 +127,17 @@ alone (PLAYBOOK §7.1).
 1. **Pre-trade:** only GO / GO-REDUCED algos trade, at `SIZE_FRACTION` from S2.
 2. **In code (skeleton):** `LIMITS` per symbol checked worst-case (current position **plus all
    resting orders** via `step(..., outstanding={sym: (buys, sells)})`), `LOTS` (orders round
-   toward zero), `MAX_ORDER` per step, `RISK.max_gross` (risk-reducing orders always allowed),
+   toward zero), `MAX_ORDER` per step, `RISK.max_gross` (reserves capacity for independently
+   filling resting/new orders; an unfilled reduction cannot fund another leg),
    `RISK.max_drawdown` (flatten through the same order guard until flat, then pause
    `halt_steps`); pass `account_pnl=` when the platform reports PnL. `step()` never raises;
    on error it sends **no orders** (never stale or zero targets); errors in `STATE.errors`.
    Pairs bundles: `on_tick(prices, positions)` holds positions on error; `to_orders()` is
    lot- and resting-order-aware; `step()` exists so `replay_skeleton.py` can replay them.
    Size check: legs must be ≥ 1 lot (pairs `unit_notional` large enough) or nothing trades —
-   `replay_skeleton.py` warns on zero trades and fails on limit breaches.
+   `replay_skeleton.py` warns on zero trades and fails on limit breaches, recorded strategy
+   errors, or non-finite orders/PnL/positions. `SIZE_FRACTION` remains a manual target-sizing
+   instruction; setting the constant alone does not scale orders.
 3. **Setting the drawdown stop:** `max_drawdown ≈ 2 × backtest max DD × SIZE_FRACTION` (in the
    platform's PnL units). Tighter stops whipsaw mean-reversion strategies.
 4. **Live:** risk/ops can veto any submission; a kill means flat + last-known-good resubmitted.

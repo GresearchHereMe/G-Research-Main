@@ -128,12 +128,18 @@ def _behaviour(vr: float) -> str:
     return "random-walk-like"
 
 
-def price_report(prices: Mapping[str, np.ndarray], max_lag: int = 3) -> list[str]:
-    """Plain-text findings for a dict of price series."""
+def price_report(
+    prices: Mapping[str, np.ndarray],
+    max_lag: int = 3,
+    *,
+    observed_prices: Mapping[str, np.ndarray] | None = None,
+) -> list[str]:
+    """Use the common `prices` grid for cross-asset tests; optional observations for each series."""
     lines = ["== Per-series behaviour (log returns)",
              f"{'symbol':>10} {'n':>6} {'vol':>9} {'ac1':>6} {'VR5':>6} {'VR20':>6}  read"]
     aligned = {s: aligned_log_returns(p) for s, p in prices.items()}
-    rets = {s: r[np.isfinite(r)] for s, r in aligned.items()}
+    per_series = prices if observed_prices is None else observed_prices
+    rets = {s: log_returns(p) for s, p in per_series.items()}
     for sym, r in rets.items():
         vr5, vr20 = variance_ratio(r, 5), variance_ratio(r, 20)
         lines.append(f"{sym:>10} {len(r):6d} {np.std(r):9.5f} {autocorr(r, 1):6.2f} "

@@ -3,6 +3,8 @@
 
 Copy to research/<idea>.py, edit `strategy` and GRID, run:
   uv run python research/<idea>.py data/round1.csv [--cost-bps 1] [--lag 1]
+This delegates to evaluate_algo.py: the same integrity gates, development/holdout split,
+plateau selection and trial ledger apply. All evaluate_algo.py options are accepted.
 
 Rules (RULES.md §5): every config you evaluate counts as a trial (N in the Deflated Sharpe);
 keep GRID coarse (<= 3 knobs, 3-4 values each); obey the VERDICT line; select by Sharpe, then
@@ -11,15 +13,13 @@ size to the position limits.
 
 from __future__ import annotations
 
-import argparse
+import subprocess
 import sys
 from pathlib import Path
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
-from gqc import io, overfit, research
 
 # ---- EDIT: parameter grid -------------------------------------------------------------------
 GRID = {"halflife": [20, 50, 100], "entry": [1.0, 1.5, 2.0]}
@@ -46,20 +46,8 @@ def strategy(prices: dict[str, np.ndarray], halflife: float, entry: float) -> di
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("csv", type=Path)
-    parser.add_argument("--cost-bps", type=float, default=1.0)
-    parser.add_argument("--lag", type=int, default=1)
-    args = parser.parse_args()
-    _, prices = io.load_prices(args.csv)
-    configs, matrix = research.grid_returns(strategy, prices, GRID, args.lag, args.cost_bps)
-    srs = np.atleast_1d(overfit.sharpe(matrix, axis=0))
-    for cfg, sr, col in sorted(zip(configs, srs, matrix.T), key=lambda x: -x[1])[:10]:
-        print(f"{cfg}  Sharpe/step {sr:+.4f}  PnL {col.sum():+.2f}")
-    print()
-    for line in research.overfit_report(configs, matrix):
-        print(line)
-    return 0
+    evaluator = Path(__file__).resolve().parents[1] / "scripts" / "evaluate_algo.py"
+    return subprocess.call([sys.executable, str(evaluator), __file__, *sys.argv[1:]])
 
 
 if __name__ == "__main__":

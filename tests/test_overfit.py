@@ -84,7 +84,8 @@ def test_research_template_runs_end_to_end(tmp_path):
     rows = ["t,A,B"] + [f"{t},{100 + rng.normal():.4f},{100 + t * 0.01:.4f}" for t in range(600)]
     csv.write_text("\n".join(rows))
     out = subprocess.run([sys.executable, str(repo / "templates" / "research_template.py"),
-                          str(csv)], check=True, capture_output=True, text=True).stdout
+                          str(csv), "--runs-dir", str(tmp_path / "runs")],
+                         check=True, capture_output=True, text=True).stdout
     assert "VERDICT" in out
 
 
