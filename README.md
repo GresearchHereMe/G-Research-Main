@@ -7,6 +7,7 @@ around **cointegration / pairs trading on unseen real market data**. Goal: highe
 
 | File | What it is |
 |---|---|
+| [WINNING.md](WINNING.md) | Practical decision guide for the event + review of our tooling with confirmed defects to fix (§8) |
 | [PLAYBOOK.md](PLAYBOOK.md) | Intelligence on the event and comparable competitions, strategy math, bot exploits, event-day runbook |
 | [PLAN.md](PLAN.md) | Build plan: backtest engines, strategy library, submission tooling, timeline to the event |
 | [RULES.md](RULES.md) | Binding process rules: protected `main`, PR review, research integrity, submission safety |
