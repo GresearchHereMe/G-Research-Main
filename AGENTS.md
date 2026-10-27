@@ -95,6 +95,84 @@ nothing validated) → S0–S4 loop → **one change per resubmission** → log 
 
 Agents never skip S2 or S3. A strategy that has not passed G0 **never** trades.
 
+### 5.1 Developing algorithms: baselines first, optional ML second
+
+Start with a mechanism found in S0 and a working baseline. Model complexity earns its place
+through chronological, costed trading results. Price-level R² or directional accuracy alone
+does not establish an edge. Four event hours include briefing, integration and networking;
+do not allocate the whole window to model development.
+
+| Candidate | Event-time priority | Conditions |
+|---|---|---|
+| Existing static/EWM/Kalman pairs strategy | First baseline when the data supports a spread relationship | Fit/screen pairs on past data only; check stability and costs |
+| Ridge or a small autoregression | First supervised challenger | Few causal features; training-only preprocessing; export coefficients |
+| Shallow XGBoost regression | Feasible optional nonlinear challenger | Offline CPU training, honest time splits, bounded search and verified submission export |
+| Tiny feed-forward network, e.g. hidden layers 16/8 | Optional prepared experiment | Fixed small architecture and seeded training; compare against ridge and the baseline |
+| LSTM/Transformer or a large ensemble | Defer during the event | Reconsider only with an already tested pipeline, suitable history and enough validation time |
+
+Three trained models or a deep-learning component are not requirements. ARIMA, GARCH and
+HMMs need a specific forecasting, volatility or regime hypothesis; do not add them merely
+to increase the model count. Correlated models are not independent evidence, and an ensemble
+is another configuration to validate and count.
+
+**XGBoost starting budget (team heuristic, not winning parameters):** CPU `gbtree`,
+`tree_method="hist"`, squared-error regression; try depth 2 or 3 with one fixed learning
+rate and regularization setting. Cap boosting rounds around 100–200, using an earlier
+chronological validation block for early stopping. Do not turn every parameter into a grid
+axis. Start with roughly 5–15 interpretable features; measure actual training/inference time.
+Allocate at most one 20–30 minute ML comparison after a baseline is accepted, unless the
+round schedule leaves less time. Drop the experiment if fitting, export or validation
+threatens the submission deadline. These models are research directions, not installed
+tooling; their names do not relax dependency or pasted-file restrictions.
+
+**Training and evaluation contract:**
+
+1. Record the available history, timestamp spacing, allowed libraries, execution lag, fees
+   and target horizon before fitting. Many adjacent ticks or overlapping labels do not
+   imply many independent observations. With insufficient history for chronological
+   training and evaluation, keep the simple/online baseline; there is no universal row
+   count that makes deep learning safe.
+2. Predict an executable-horizon return or spread change. For a spread label, freeze the
+   hedge ratio at the prediction time rather than fitting it on the future label window.
+   Start with spread z-score, recent spread/leg returns and rolling volatility; add book
+   imbalance only if available and correctly timestamped. Select features/pairs and fit
+   scalers, imputers or clipping thresholds using the training prefix only.
+3. Declare formation/training, development folds and a final look-once holdout. Train on
+   earlier observations; validate on later observations. Purge training examples whose
+   label endpoints reach the validation period, including execution lag and target horizon.
+   Use timestamps rather than a guessed row gap for irregular data. Random train/test
+   splits and shuffled cross-validation are unsuitable here. Early stopping must never
+   observe the final holdout; do not re-select after reading its result. Early stopping and
+   iteration selection must finish before each scored prediction block begins; the block
+   used to choose the stopping iteration is not independent performance evidence.
+4. Implement the fit/predict boundary explicitly: `evaluate_algo.py` splits PnL, but does
+   **not** construct estimator training folds. `strategy(prices, **params)` must generate
+   out-of-sample scored positions using earlier completed labels, with neutral positions
+   during formation. Freeze each fold's fitted model, or declare deterministic retraining
+   steps using only labels available then. Fitting on the full array and predicting that
+   array is leakage. Test the entire fitting/preprocessing path with prefix/future
+   perturbations; G0 on already frozen weights cannot prove where those weights came from.
+5. Compare candidates with the same information, horizon, execution and cost assumptions.
+   Select on development plateaus; inspect net PnL, Sharpe, drawdown, turnover and stability,
+   then apply S2 and the final holdout. Log model families, feature sets, horizons, seeds,
+   retraining schedules and manual changes as trials. Trade only when predicted gain in
+   the portfolio's units exceeds round-trip costs plus a declared uncertainty buffer.
+   Translate predictions through the shared order/risk guards; a prediction is not an order.
+6. Prove deployment before expanding the search. Research may train with separately
+   approved libraries, but the pasted file follows §13: embed coefficients/weights/tree
+   constants and stdlib inference unless the briefing explicitly permits more. Native
+   XGBoost JSON or a pickle is not a stdlib predictor, and `make_submission.py` does not
+   bundle ML models. A custom tree predictor must match native predictions for feature
+   order/dtype, thresholds, missing-value branches, fitted base score, objective and selected
+   boosting rounds. Early-stopped sklearn XGBoost predictions use the best iteration;
+   native/default full-model prediction can differ. Check prediction and position parity,
+   including boundary/missing inputs, then bare-exec and replay the exact final adapter (S3).
+
+Primary references: [XGBoost parameters](https://xgboost.readthedocs.io/en/stable/parameter.html),
+[early stopping and prediction](https://xgboost.readthedocs.io/en/stable/python/python_api.html),
+[model IO versus dumps](https://xgboost.readthedocs.io/en/stable/tutorials/saving_model.html),
+[chronological splits with a gap](https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.TimeSeriesSplit.html).
+
 ## 6. Gates and decisions (`src/gqc/pipeline.py`)
 
 | Gate | Test | Type |
