@@ -1,0 +1,10 @@
+#!/bin/sh
+# Refuse commits on protected branches. Enable with: git config core.hooksPath .githooks
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+case "$branch" in
+  main|master)
+    echo "pre-commit: refusing to commit on '$branch'. Create a branch: git switch -c feat/<topic>" >&2
+    exit 1
+    ;;
+esac
+exit 0
