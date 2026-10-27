@@ -14,6 +14,6 @@ jobs:
       - name: Install
         run: uv sync --python 3.12
       - name: Lint
-        run: uv run ruff check src scripts tests .claude/hooks
+        run: uv run ruff check src scripts tests templates .claude/hooks
       - name: Test
         run: uv run pytest -q

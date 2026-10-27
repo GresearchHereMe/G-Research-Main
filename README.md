@@ -26,6 +26,16 @@ Requirements: Python ≥ 3.11, [uv](https://docs.astral.sh/uv/), `gh` CLI for PR
 
 ## Event-day kit
 
+No trading logic is fixed in advance: **observe → diagnose → write `decide()`**.
+
+```bash
+uv run python scripts/make_practice_data.py data/practice_book.csv --book  # rehearsal book + bots
+uv run python scripts/diagnose.py data/practice_book.csv --trades data/practice_book_trades.csv
+# edit templates/skeleton.py decide() for what diagnose found; paste that file
+```
+
+Pairs-specific tools (use only if the data is a pairs game):
+
 ```bash
 uv run python scripts/make_practice_data.py data/practice_synth.csv     # rehearsal data
 uv run python scripts/screen_pairs.py data/practice_synth.csv           # rank pairs; verdict column

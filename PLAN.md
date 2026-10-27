@@ -14,8 +14,9 @@ the long-term roadmap; §0 is what actually happens today.
 | 09:30–10:00 | Claude | Guardrails, playbook, plan (PR #1) | done |
 | 10:00–11:30 | Claude | Event-day kit: `core.py` stdlib trader, stats/screen, backtester, sweep, submission builder, practice data (PR #2) | done |
 | 11:30–13:00 | Team | Review + merge PR #1 then #2 (non-author merges); every laptop: `uv sync`, `uv run pytest`, hooks enabled | todo |
-| 13:00–15:00 | Team | **Rehearsal** on `data/practice_synth.csv` + one real pair: screen → sweep → submission in < 20 min; read PLAYBOOK §5.0/§5.1/§9 | todo |
-| 15:00–16:30 | Team | Fix whatever hurt in rehearsal; freeze `submissions/baseline.py` (static-hedge, entry 2.0, exit 0, stop 4) | todo |
+| 10:15–11:00 | Claude | Observe-first tooling: `diagnose.py`, `templates/skeleton.py`, synthetic book with bots (PR #2) | done |
+| 13:00–15:00 | Team | **Rehearsal**: one person generates practice data blind; others run `diagnose.py`, name the behaviours, write `decide()` in the skeleton, in < 30 min | todo |
+| 15:00–16:30 | Team | Fix whatever hurt in rehearsal; no strategy is frozen — only tools and the skeleton | todo |
 | 17:30–21:30 | Team | Event: briefing questions (PLAYBOOK §9) → baseline in 10 min → one change per iteration | — |
 
 Roles at the event: **Driver** (pastes/submits), **Analyst** (runs screen/sweep on new data),

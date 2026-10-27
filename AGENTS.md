@@ -20,7 +20,9 @@ uv run pytest -q                                           # all tests (must pas
 uv run ruff check .                                        # lint
 git config core.hooksPath .githooks                        # once per clone: blocks commits to main
 
-uv run python scripts/make_practice_data.py data/practice_synth.csv   # rehearsal data
+uv run python scripts/make_practice_data.py data/practice_synth.csv   # rehearsal prices
+uv run python scripts/make_practice_data.py data/practice_book.csv --book   # rehearsal book + bots
+uv run python scripts/diagnose.py data/prices_or_book.csv [--trades t.csv]  # OBSERVE first
 uv run python scripts/screen_pairs.py data/prices.csv                  # rank pairs (train/test)
 uv run python scripts/sweep_pair.py data/prices.csv --y A --x B        # params by plateau
 uv run python scripts/make_submission.py --config cfg.json --out submissions/r1-v1.py
@@ -28,8 +30,13 @@ uv run python scripts/make_submission.py --config cfg.json --out submissions/r1-
 
 ## Layout
 
+Trading logic is **not** fixed in advance: diagnose the event data first, then write
+`decide()` in `templates/skeleton.py` (or use the pairs module if the data calls for it).
+
 ```
-src/gqc/core.py        stdlib-only pairs trader (copied verbatim into submissions)
+templates/skeleton.py  paste-ready shell: state, limits, never-crash wrapper; decide() is empty
+src/gqc/diagnostics.py behaviour probes: variance ratio, lead-lag, imbalance, staleness, markouts
+src/gqc/core.py        stdlib-only pairs trader (one option, copied verbatim into submissions)
 src/gqc/stats.py       OLS, ADF, Engle–Granger (MacKinnon crit), half-life, screening
 src/gqc/backtest.py    bar-level backtester: lag, costs, metrics
 src/gqc/sweep.py       train/test grid search with plateau scoring
