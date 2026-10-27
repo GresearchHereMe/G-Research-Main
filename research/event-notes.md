@@ -49,4 +49,6 @@ Not the pairs game we prepared for. The game is take-or-skip with a lockout:
 
 | Round | Data file | Steps | Notes |
 |---|---|---|---|
-| 1 | live server | 2000 | submissions/tradinggame_v1.py |
+| 1 | live server | 2000 | submissions/tradinggame_r1_v2.py (exponential, mean 10) |
+| 2 | live server | 2000 | submissions/tradinggame_r2_v3.py (distribution not announced) |
+| 3 | live server | 2000 | submissions/tradinggame_r3_v4.py (latest score counts, no bots) |
