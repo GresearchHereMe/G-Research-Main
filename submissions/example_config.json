@@ -1,0 +1,23 @@
+{
+  "pairs": {
+    "aaa_bbb": {
+      "y": "AAA",
+      "x": "BBB",
+      "params": {
+        "hedge": "static",
+        "static_beta": 1.007,
+        "static_alpha": 0.0,
+        "entry_z": 1.0,
+        "exit_z": 0.0,
+        "stop_z": 4.0,
+        "halflife": 200,
+        "warmup": 100,
+        "unit_notional": 10000
+      }
+    }
+  },
+  "limits": {
+    "AAA": 1000,
+    "BBB": 1000
+  }
+}

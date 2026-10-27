@@ -10,7 +10,8 @@ around **cointegration / pairs trading on unseen real market data**. Goal: highe
 | [PLAYBOOK.md](PLAYBOOK.md) | Intelligence on the event and comparable competitions, strategy math, bot exploits, event-day runbook |
 | [PLAN.md](PLAN.md) | Build plan: backtest engines, strategy library, submission tooling, timeline to the event |
 | [RULES.md](RULES.md) | Binding process rules: protected `main`, PR review, research integrity, submission safety |
-| [CLAUDE.md](CLAUDE.md) | Instructions for Claude Code / AI agents working in this repo |
+| [AGENTS.md](AGENTS.md) | Instructions for any AI coding agent: setup, commands, layout, git/code rules |
+| [CLAUDE.md](CLAUDE.md) | Claude Code specifics (imports AGENTS.md): guard hook, MCPs, skills |
 
 ## Getting started
 
@@ -18,10 +19,33 @@ around **cointegration / pairs trading on unseen real market data**. Goal: highe
 git clone https://github.com/GresearchHereMe/G-Research-Main.git
 cd G-Research-Main
 git config core.hooksPath .githooks        # blocks local commits/pushes to main
-uv run --no-project --with pytest pytest tests -q
+uv sync && uv run pytest -q
 ```
 
 Requirements: Python ≥ 3.11, [uv](https://docs.astral.sh/uv/), `gh` CLI for PRs.
+
+## Event-day kit
+
+No trading logic is fixed in advance: **observe → diagnose → write `decide()`**.
+
+```bash
+uv run python scripts/make_practice_data.py data/practice_book.csv --book  # rehearsal book + bots
+uv run python scripts/diagnose.py data/practice_book.csv --trades data/practice_book_trades.csv
+# edit templates/skeleton.py decide() for what diagnose found; paste that file
+```
+
+Pairs-specific tools (use only if the data is a pairs game):
+
+```bash
+uv run python scripts/make_practice_data.py data/practice_synth.csv     # rehearsal data
+uv run python scripts/screen_pairs.py data/practice_synth.csv           # rank pairs; verdict column
+uv run python scripts/sweep_pair.py data/practice_synth.csv --y AAA --x BBB   # plateau params + OOS
+uv run python scripts/make_submission.py --config submissions/example_config.json \
+    --out submissions/round1-v1.py                                      # stdlib-only single file
+```
+
+The generated file exposes `on_tick(prices) -> target positions` and `to_orders(targets,
+positions)`; adapt only its bottom ADAPTER block to the platform's interface.
 
 ## Workflow (short version of RULES.md)
 
@@ -34,10 +58,10 @@ Requirements: Python ≥ 3.11, [uv](https://docs.astral.sh/uv/), `gh` CLI for PR
 
 | Phase | State |
 |---|---|
-| P0 Guardrails, playbook, plan | in review |
-| P1 Foundations (package, data, synthetic generator) | next |
-| P2 Stats core · P3 Backtest engine A · P4 Strategies | planned |
-| P5 Order-book engine B · P6 Submission tooling + rehearsal | planned |
+| P0 Guardrails, playbook, plan | PR #1 |
+| Event-day kit: core trader, stats, backtester, sweep, submission builder | PR #2 |
+| Rehearsal (today, before 17:30) | todo |
+| Order-book engine B, richer strategy library | after the event |
 
 ## Layout
 
