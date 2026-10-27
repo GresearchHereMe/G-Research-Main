@@ -32,6 +32,57 @@ roughly 2 h of actual play. Interface, scoring, limits and fees are **unknown un
 
 ---
 
+## 1b. Strategy policy — what we trade, and what we don't
+
+**Principle:** one explainable mechanism per algo, few parameters, every candidate through the
+§5 pipeline. Nothing is pre-committed; `diagnose.py` decides which playbook below applies.
+The edge in a cointegration game is the **spread** returning to equilibrium, not forecasting
+single prices (close to a random walk).
+
+### Strategies we use (in priority order)
+
+| # | Strategy | Trigger from `diagnose.py` / `screen_pairs.py` | Implementation | Key rules |
+|---|---|---|---|---|
+| 1 | **Spread mean reversion** (pairs, baskets, dual listings) | `TRADE` verdict: cointegrated in dev and later window, β > 0, return corr > 0.3, sensible half-life | `src/gqc/core.py` (`PairsTrader`, `PairBook`), `sweep_pair.py`, `make_submission.py` | Log spread; hedge = Kalman (default) / EWM / static fitted on formation window; enter \|z\| > entry, exit at mean, stop \|z\| > 4, time stop ≈ 3 half-lives; trade on executable prices; hedge on **filled** qty |
+| 2 | **Single-asset mean reversion** | VR20 < 0.8 and negative lag-1 autocorr on aligned mids | `templates/research_template.py` (EWM fade) | z vs EWM mean; check bid/ask bounce is not the cause |
+| 3 | **Lead–lag** | `A leads B by k` with \|corr\| ≥ 0.1 | research template: position in B from A's last k-step move | Must survive lag + 1 (G2); dies fast if the lag is execution-only |
+| 4 | **Microstructure / market making** (only if there is a book) | imbalance → mid corr ≥ 0.1, wide spread, stale quotes | skeleton `decide()` with `normalise()` microprice | Fair = microprice/wall mid; skew quotes by inventory; take stale quotes only beyond cost |
+| 5 | **Counterparty exploitation** (only if trades/IDs exist) | markout < 0 for a party (they lose) or > 0 (informed) | skeleton `decide()` | Quote to / trade against losers; follow informed; check several horizons |
+| 6 | **Signal combination** | ≥ 2 of the above are individually weak but present | ridge / lasso on ≤ 5 causal features fitted on the dev window; export coefficients as constants | Time-ordered fit only; counts as trials; still through G0–G5 |
+
+Run all GO edges at the same time across products (capacity is per product); one shared
+risk gate, net positions per symbol.
+
+### Model allow-list
+
+| Model family | Status tonight | Why |
+|---|---|---|
+| Kalman / state-space hedge, OU half-life, EWM mean/vol | **Use** (built) | Directly models the cointegrating spread; O(1), stdlib, pasteable |
+| OLS / Engle–Granger / Johansen | **Use** for screening and formation fits | Standard, fast, interpretable |
+| Ridge / Lasso | **Allowed** for combining ≤ 5 signals | Closed-form, regularised, exports as plain coefficients |
+| EWM volatility (instead of GARCH) | **Use** | Same job, no fitting risk |
+| ARIMA / GARCH full fits | Skip | Add parameters without adding edge here |
+| HMM regime models | Skip | Break detectors + stops already cover regime changes |
+| Random forest / LightGBM / XGBoost | **Not tonight** | Small data, overfit, not pasteable without libraries |
+| FNN / LSTM / Transformers / any deep learning | **Never tonight** | Thousands of rows at low signal-to-noise; hundreds of trials sink the Deflated Sharpe; paste box is likely stdlib/numpy; no time to validate |
+
+Reconsider ML only if the briefing reveals an **offline prediction task with a large,
+feature-rich dataset and installable libraries**: ridge first, LightGBM second, time-ordered
+cross-validation, and the full gate pipeline. The trial budget is the reason: with N trials the
+data needed to beat luck grows as ≈ 2 ln N / SR² (300 trials at Sharpe/step 0.05 ⇒ ~4,600 steps).
+
+### Never (strategy level)
+
+- Trade a pair on correlation alone, or without an economic reason to be related.
+- Average down / add to a losing spread because it is "more extreme"; no martingale sizing.
+- Full Kelly, or sizing from in-sample returns.
+- Hold a single unhedged leg after a partial fill — hedge the filled quantity or unwind.
+- Exploit platform bugs or timing artefacts without organiser approval.
+- Put an unvalidated "hunch" trade on at size, or tune on the holdout.
+- Forecast single prices and call it a strategy without a mechanism and a passing G0–G5.
+
+---
+
 ## 2. Setup and commands
 
 ```bash
