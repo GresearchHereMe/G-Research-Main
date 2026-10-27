@@ -116,12 +116,13 @@ def test_pair_book_nets_and_scales_to_limits():
     assert targets["C"] == pytest.approx(2.5)
 
 
-def test_pair_book_counts_errors_and_holds_targets(capsys):
+def test_pair_book_counts_errors_and_signals_no_new_risk(capsys):
+    # WINNING.md §8 D: returning stale targets after a failure could open positions.
     pairs = {"ab": core.PairSpec("A", "B", core.Params(warmup=1))}
     book = core.PairBook(pairs)
     book.update({"A": 10.0, "B": 10.0})
     book.combine = None  # force a failure inside update
-    assert book.update({"A": 11.0, "B": 10.0}) == book.last_targets
+    assert book.update({"A": 11.0, "B": 10.0}) is None
     assert book.errors == 1
     assert "PairBook error" in capsys.readouterr().err
 

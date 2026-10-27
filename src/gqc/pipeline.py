@@ -3,8 +3,12 @@
 G0 integrity   no lookahead, deterministic, finite positions                (hard)
 G1 overfit     PBO (CSCV) + Deflated Sharpe + MinBTL over ALL configs tried   (hard if REJECT)
 G2 robustness  best config still profitable at 2x costs and +1 step lag      (hard)
-G3 stability   positive PnL in >= 3 of 4 time slices                         (soft)
-G4 risk        total PnL >= 2 x max drawdown                                  (soft)
+G3 stability   positive PnL in >= 3 of 4 development slices                  (soft)
+G4 risk        development PnL >= 2 x max drawdown                            (soft)
+G5 holdout     selected config profitable on the untouched final window      (soft)
+
+Selection, PBO/DSR and G1-G4 use only the development window [0, train_frac); G0 checks the
+RAW strategy output (before throttling) for causality and finiteness.
 
 Trading frequency is part of the search: every strategy is also run rebalancing only every
 k steps and with a no-trade band, and those variants count as trials.
@@ -104,10 +108,11 @@ def _decide(gates: Sequence[Gate], caution: bool) -> tuple[str, float]:
     return "GO", GO_SIZE
 
 
-def _frequency_table(strategy, prices, base_cfg, frequencies, lag, cost_bps) -> list[str]:
-    lines = [f"Frequency check (best params, 2x costs): {'every':>5} {'Sharpe/step':>12} {'PnL':>10}"]
+def _frequency_table(strategy, prices, base_cfg, frequencies, lag, cost_bps, split) -> list[str]:
+    lines = [f"Frequency check (dev window, 2x costs):   {'every':>5} {'Sharpe/step':>12} {'PnL':>10}"]
     for k in frequencies:
-        pnl = research.positions_pnl(prices, strategy(prices, every=k, **base_cfg), lag, 2 * cost_bps)
+        pos = strategy(prices, every=k, **base_cfg)
+        pnl = research.positions_pnl(prices, pos, lag, 2 * cost_bps)[:split]
         lines.append(f"{'':41}{k:5d} {overfit.sharpe(pnl):12.4f} {pnl.sum():10.2f}")
     return lines
 
@@ -121,40 +126,55 @@ def evaluate(
     frequencies: Sequence[int] = (1, 2, 5, 10),
     bands: Sequence[float] = (0.0,),
     seed: int = 0,
+    train_frac: float = 0.7,
+    prior_trials: int = 0,
 ) -> Evaluation:
+    """Select and gate on the development window [0, split); report the holdout once (G5)."""
     run = _throttled(strategy)
     full_grid = {**grid, "every": list(frequencies), "band": list(bands)}
     configs, matrix = research.grid_returns(run, prices, full_grid, lag, cost_bps)
-    srs = np.atleast_1d(overfit.sharpe(matrix, axis=0))
+    split = int(len(matrix) * train_frac)
+    dev = matrix[:split]
+    srs = np.atleast_1d(overfit.sharpe(dev, axis=0))
     best_idx = int(np.argmax(srs))
-    best, pnl = configs[best_idx], matrix[:, best_idx]
+    best = configs[best_idx]
+    report = research.overfit_report(configs, dev, selected=best_idx, prior_trials=prior_trials)
+    raw_cfg = {k: v for k, v in best.items() if k not in ("every", "band")}
+    gates = _gates(run, strategy, prices, best, raw_cfg, matrix[:, best_idx], split,
+                   report[-1], lag, cost_bps, seed)
+    decision, size = _decide(gates, "CAUTION" in report[-1])
+    base_cfg = {k: v for k, v in best.items() if k != "every"}
+    lines = (
+        f"Development window [0, {split}) used for selection; holdout [{split}, {len(matrix)})",
+        *report[:-1],
+        *(f"{g.name:14} {'PASS' if g.passed else 'FAIL'}{' (hard)' if g.hard else ''}: {g.detail}"
+          for g in gates),
+        *_frequency_table(run, prices, base_cfg, frequencies, lag, cost_bps, split),
+        f"DECISION: {decision}  size = {size:.0%} of position limits  config = {best}",
+    )
+    return Evaluation(decision, size, best, gates, tuple(lines))
 
-    report = research.overfit_report(configs, matrix)
-    verdict_line = report[-1]
-    rejected, caution = "REJECT" in verdict_line, "CAUTION" in verdict_line
+
+def _gates(run, strategy, prices, best, raw_cfg, pnl_full, split, verdict_line, lag, cost_bps,
+           seed) -> tuple[Gate, ...]:
+    pnl, holdout = pnl_full[:split], pnl_full[split:]
     positions = run(prices, **best)
-    stressed = [research.positions_pnl(prices, positions, lag, 2 * cost_bps),
-                research.positions_pnl(prices, positions, lag + 1, cost_bps)]
-    base_sr = float(srs[best_idx])
+    stressed = [research.positions_pnl(prices, positions, lag, 2 * cost_bps)[:split],
+                research.positions_pnl(prices, positions, lag + 1, cost_bps)[:split]]
+    base_sr = float(overfit.sharpe(pnl))
     robust = pnl.sum() > 0 and all(overfit.sharpe(s) > max(0.0, 0.5 * base_sr) for s in stressed)
     dd = _max_drawdown(pnl)
-    gates = (
-        _integrity(run, prices, best, seed),
-        Gate("G1 overfit", not rejected, True, verdict_line.removeprefix("VERDICT: ")),
+    return (
+        _integrity(strategy, prices, raw_cfg, seed),  # RAW targets: throttling hides bad values
+        Gate("G1 overfit", "REJECT" not in verdict_line, True,
+             verdict_line.removeprefix("VERDICT: ")),
         Gate("G2 robustness", robust, True,
              f"Sharpe base {base_sr:.4f}, 2x cost {overfit.sharpe(stressed[0]):.4f}, "
              f"lag+1 {overfit.sharpe(stressed[1]):.4f}"),
         Gate("G3 stability", _slices_positive(pnl) >= 3, False,
-             f"{_slices_positive(pnl)}/4 time slices profitable"),
+             f"{_slices_positive(pnl)}/4 development slices profitable"),
         Gate("G4 risk", pnl.sum() >= 2 * dd, False, f"PnL {pnl.sum():.2f} vs max DD {dd:.2f}"),
+        Gate("G5 holdout", len(holdout) == 0 or holdout.sum() > 0, False,
+             f"holdout PnL {holdout.sum():.2f}, Sharpe/step {overfit.sharpe(holdout):.4f} "
+             f"(final check, look once, never tune on it)"),
     )
-    decision, size = _decide(gates, caution)
-    base_cfg = {k: v for k, v in best.items() if k != "every"}
-    lines = (
-        *report[:-1],
-        *(f"{g.name:14} {'PASS' if g.passed else 'FAIL'}{' (hard)' if g.hard else ''}: {g.detail}"
-          for g in gates),
-        *_frequency_table(run, prices, base_cfg, frequencies, lag, cost_bps),
-        f"DECISION: {decision}  size = {size:.0%} of position limits  config = {best}",
-    )
-    return Evaluation(decision, size, best, gates, tuple(lines))

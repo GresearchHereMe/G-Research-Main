@@ -40,23 +40,29 @@ def replay(
     positions = {s: 0.0 for s in symbols}
     pending: list[tuple[int, dict]] = []
     pnl = np.zeros(n)
-    trades = 0
+    stats = {"trades": 0}
     peak = {s: 0.0 for s in symbols}
+
+    def fill(orders: dict, px: dict, t: int) -> None:
+        for s, qty in orders.items():
+            if s in px and qty:
+                positions[s] += qty
+                pnl[t] -= abs(qty) * px[s] * cost_bps / 1e4
+                stats["trades"] += 1
+                peak[s] = max(peak[s], abs(positions[s]))
+
     for t in range(n):
         px = {s: float(prices[s][t]) for s in symbols if np.isfinite(prices[s][t])}
         if t:
             pnl[t] += sum(positions[s] * (px[s] - float(prices[s][t - 1]))
                           for s in px if np.isfinite(prices[s][t - 1]))
-        for due, orders in [p for p in pending if p[0] == t]:
-            for s, qty in orders.items():
-                if s in px and qty:
-                    positions[s] += qty
-                    pnl[t] -= abs(qty) * px[s] * cost_bps / 1e4
-                    trades += 1
-                    peak[s] = max(peak[s], abs(positions[s]))
+        for _, orders in [p for p in pending if p[0] == t]:
+            fill(orders, px, t)
         pending = [p for p in pending if p[0] > t]
         orders = step(dict(px), {s: q for s, q in positions.items() if q}) or {}
-        if orders:
+        if orders and lag == 0:
+            fill(orders, px, t)  # same-step fill at this step's price
+        elif orders:
             pending.append((t + lag, dict(orders)))
     final = {s: q for s, q in positions.items() if q}
-    return ReplayResult(pnl, trades, final, peak)
+    return ReplayResult(pnl, stats["trades"], final, peak)

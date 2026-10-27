@@ -21,9 +21,16 @@ MEAN_REVERTING_VR, TRENDING_VR = 0.8, 1.2
 
 
 def log_returns(prices: np.ndarray) -> np.ndarray:
+    """Returns over valid observations only (gaps removed) — for single-series statistics."""
+    r = aligned_log_returns(prices)
+    return r[np.isfinite(r)]
+
+
+def aligned_log_returns(prices: np.ndarray) -> np.ndarray:
+    """Returns on the original time grid; NaN wherever either endpoint is missing/invalid."""
     p = np.asarray(prices, float)
-    p = p[np.isfinite(p) & (p > 0)]
-    return np.diff(np.log(p))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.diff(np.log(np.where(p > 0, p, np.nan)))
 
 
 def autocorr(x: np.ndarray, lag: int) -> float:
@@ -51,7 +58,10 @@ def lead_lag(a: np.ndarray, b: np.ndarray, max_lag: int = 5) -> dict[int, float]
         else:
             x, y = a[-lag:], b[: len(b) + lag]
         n = min(len(x), len(y))
-        out[lag] = float(np.corrcoef(x[:n], y[:n])[0, 1]) if n > 3 else 0.0
+        x, y = np.asarray(x[:n], float), np.asarray(y[:n], float)
+        ok = np.isfinite(x) & np.isfinite(y)
+        good = ok.sum() > 3 and np.std(x[ok]) > 0 and np.std(y[ok]) > 0
+        out[lag] = float(np.corrcoef(x[ok], y[ok])[0, 1]) if good else 0.0
     return out
 
 
@@ -122,17 +132,18 @@ def price_report(prices: Mapping[str, np.ndarray], max_lag: int = 3) -> list[str
     """Plain-text findings for a dict of price series."""
     lines = ["== Per-series behaviour (log returns)",
              f"{'symbol':>10} {'n':>6} {'vol':>9} {'ac1':>6} {'VR5':>6} {'VR20':>6}  read"]
-    rets = {s: log_returns(p) for s, p in prices.items()}
+    aligned = {s: aligned_log_returns(p) for s, p in prices.items()}
+    rets = {s: r[np.isfinite(r)] for s, r in aligned.items()}
     for sym, r in rets.items():
         vr5, vr20 = variance_ratio(r, 5), variance_ratio(r, 20)
         lines.append(f"{sym:>10} {len(r):6d} {np.std(r):9.5f} {autocorr(r, 1):6.2f} "
                      f"{vr5:6.2f} {vr20:6.2f}  {_behaviour(vr20)}")
     lines += ["", "== Lead-lag (|corr| >= 0.1 at a non-zero lag)"]
-    names = sorted(rets)
+    names = sorted(aligned)
     for i, a in enumerate(names):
         for b in names[i + 1 :]:
-            n = min(len(rets[a]), len(rets[b]))
-            corr = lead_lag(rets[a][:n], rets[b][:n], max_lag)
+            n = min(len(aligned[a]), len(aligned[b]))  # same time grid; NaNs masked pairwise
+            corr = lead_lag(aligned[a][:n], aligned[b][:n], max_lag)
             lag = max((k for k in corr if k), key=lambda k: abs(corr[k]))
             if abs(corr[lag]) >= 0.1:
                 leader, follower = (a, b) if lag > 0 else (b, a)
