@@ -48,7 +48,11 @@ uv run python scripts/make_submission.py --config submissions/example_config.jso
 ```
 
 The generated file exposes `on_tick(prices) -> target positions` and `to_orders(targets,
-positions)`; adapt only its bottom ADAPTER block to the platform's interface.
+positions)`; adapt only its bottom ADAPTER block to the platform's interface. Optional config
+keys: `"size_fraction"` (GO 1.0 / GO-REDUCED 0.5, scales every target) and `"flatten_after"`
+(tick count from which all targets are zero). The skeleton has the same via `target_orders()`,
+`RISK["flatten_after"]`, and `step()` (orders) / `step_targets()` (positions).
+Briefing answers go in [research/event-notes.md](research/event-notes.md).
 
 ## Workflow (short version of RULES.md)
 
