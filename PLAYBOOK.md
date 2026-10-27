@@ -26,6 +26,8 @@ inferences are labelled **[inference]**. Last researched: 2026-10-27.
 6. **Backtest pessimistically.** Only ship strategies that are positive under the conservative
    fill model; pick parameters from plateaus, not peaks.
 7. **Confirm the interface in the first 5 minutes** (§9 checklist). We do not know it yet.
+8. **What the 2026 event actually was:** not a pairs game but a take-or-skip "Trading Game" with
+   a lockout. Debrief, numbers and lessons per round in §11.
 
 ---
 
@@ -411,3 +413,94 @@ Ratio", *J. Portfolio Management*; Bailey, Borwein, López de Prado & Zhu (2017)
 of Backtest Overfitting", *J. Computational Finance*; Bailey, Borwein, López de Prado & Zhu
 (2014) "Pseudo-Mathematics and Financial Charlatanism", *Notices of the AMS* (MinBTL);
 Lo (2002) "The Statistics of Sharpe Ratios", *FAJ*; Chan (2013) *Algorithmic Trading*.
+
+---
+
+## 11. Event debrief — G-Research Trading Game (ETH Zürich, 27 Oct 2026)
+
+Times are server time (the leaderboard clock, one hour behind CET). Strategy files:
+[EVENT_STRATEGIES.md](EVENT_STRATEGIES.md); trial rows: [research/LOG.md](research/LOG.md).
+
+### 11.1 The game
+
+- `play(reward, lockout, t, T, your_score, other_scores, is_locked) -> bool`, called on every one
+  of `T = 2000` turns, also while locked. Accepting locks you out for the next 15 turns, so at most
+  2000 / 16 = 125 accepts. `other_scores` = (score, is_locked) of every other team at `t-1`.
+- Server: numpy, pandas, stdlib; > 60 s per game benches the team. Submitted source runs in an
+  IPython cell per call (a full game of our code took ~1.2-2 s).
+- **All teams see the same reward sequence in a run.** Teams with identical code tie to the cent
+  (e.g. seven teams at 2613.11 in one round-1 run). Runs repeat every ~50-90 s with a new sequence.
+- **The leaderboard page embeds every team's full score path for the latest run** (Plotly data).
+  Each jump in a path is the exact reward accepted on that turn. That is public, offline data:
+  mine it every round (scripts: `collect.py` / `watch.py` pattern, poll every 20-30 s).
+
+### 11.2 Round 1 — rewards Exponential(mean 10), best score counts
+
+- Exact finite-horizon optimal stopping: `c[s] = V[s-1] - V[s-1-L]`,
+  `V[s] = V[s-1] + E[(R - c[s])+]`, with `E[(R-k)+] = 10·exp(-k/10)`. Threshold ≈ 20.1 most of the
+  game, rises to ~22-29 in the last 16-32 turns (one accept left: wait for the best), 0 on the
+  last turn. Simulated mean ≈ 2700 (sd ≈ 115-130).
+- Learning the distribution online when it is announced costs ~0.7% in simulation and 1.5% in
+  the one live same-run comparison (2522.38 vs 2561.52): it skips the first turns and its early
+  thresholds are noisy. **Use announced information.**
+- "Only take the top 125 rewards" (fixed cut 27.7) is 9% worse (mean 2442 vs 2692): you wait
+  ~16 turns for a qualifying reward on top of each lockout, so only ~62 accepts happen.
+- Best-of-runs ranking: everybody running the optimum ties each run, so the leaders were simply
+  the teams whose code was live on the luckiest sequence. Scaled thresholds (×0.9-1.2) did not
+  raise P(best > leader) above the optimum's 1.65% per run. We finished top 4 (2964.44 vs 2976.91).
+
+### 11.3 Round 2 — hidden distribution, best score counts (we won: 1st, 142.90)
+
+- Mined from bot-greedy / bot-random jumps (unbiased samples, ~250 per run, 1213 over 5 runs):
+  rewards ≈ Normal, sd ≈ 0.97, mean ≈ -0.19 but **varying by run** (-0.35 … +0.02, about twice
+  sampling noise), no drift within a run, no autocorrelation at lags 16/32.
+- The upper tail is **lighter than the normal fit** (95%: 1.34 vs 1.40; 99%: 1.96 vs 2.06). All
+  accept decisions live in that tail, so a pure normal-model DP set thresholds too high: our
+  normal-prior variant ranked 16-17/31 on three same-run comparisons, while the nonparametric
+  online learner averaged ~9th (once 1st). A fitted shape is only as good as its tail.
+- The winning 142.90 came from the team's `round2_v6_normal_prior.py` (README): empirical DP
+  shrunk towards N(0, 1), slightly pickier than risk-neutral (`KAPPA = 1.05`) because the round
+  ranked on best score.
+
+### 11.4 Round 3 — "Multi-Player Exclusive Claim", latest score counts, no bots
+
+- Rule (confirmed by organisers and the data): one claimant gets the reward; two or more get
+  nothing and all are locked for 15 turns. In 500+ won turns per run no two teams ever scored on
+  the same turn. Lockout fixed at 15. Rewards again ≈ Exponential(10) (a solo run scored 2543).
+- **The field moved every few minutes**, and latest-score ranking punished every stale guess:
+
+  | Phase (server time) | Field | Who scored |
+  |---|---|---|
+  | 18:15-18:28 | ~12 teams on the round-1 cut (~20), a few greedy | mid-band takers (Crack(ed)Traders median win 12, JLDSnoAI ~14); round-1 cutters 0-100 |
+  | 18:34-18:37 | 15 `lp_bot_*` accounts claiming nearly everything | lp_bots won 611 of 654 won turns; everyone else ~0 |
+  | 18:38-18:45 | bots gone, many teams in the 8-16 band | small rewards (0-8) won most turns; 8-16 band mostly collided |
+
+- Our live results: plain learner 41-51; per-opponent contrarian (`r·P(sole)`) 187.8 (14/31);
+  hybrid "above running mean if P(sole) ≥ 0.3" 0, 0, 63; band 8-16 0; crowd-absence table 0
+  (likely). Leaders' latest scores were 300-500.
+- **Simulators lied** in this round: every opponent-model strategy beat a replica field by 2× in
+  simulation and scored ~0-190 live. Two reasons: (1) the replica field was frozen while the real
+  one adapted; (2) the strategies read `other_scores` by list position, and the order is most
+  likely not stable between turns (the teammate's rival models failed the same way). We never
+  verified the order on the server before relying on it.
+- Determinism collides with itself: three identical copies of a deterministic contrarian scored
+  0 each in simulation; random skips (claim with p = 0.75) restored ~600 each.
+- **Team process failure:** at least four LarperStreetTrading submissions were overwritten by
+  another teammate within 1-2 minutes, several before they were scored once.
+
+### 11.5 Lessons for next time
+
+1. **Read the ranking rule first.** Best-of rounds: maximise E[max over runs] (variance helps a
+   little, more runs help more). Latest-score rounds: robustness beats expected value.
+2. **Mine the public leaderboard from minute one.** Full score paths gave us the round-2
+   distribution and the round-3 field composition without spending a submission.
+3. **Compare only within the same run.** Absolute scores swing 10-20% between runs (round 2:
+   118-143 for the same code). Report rank and gap to the modal (tied) group of that run.
+4. **Verify input semantics on the server before building on them** (list order of
+   `other_scores`, what `is_locked` means at `t-1`). Spend one early submission on a probe in a
+   latest-score round rather than discovering it at the end.
+5. **Adaptive field ⇒ in-game adaptation, not offline-fitted parameters.** A fixed band or cut
+   tuned on one snapshot was obsolete within ten minutes.
+6. **One submitter, one channel.** Every submission (time, file hash, author) goes in the log the
+   moment it is sent; keep each submitted file under version control before submitting (an
+   overwrite cost us the only copy of the round-3 hybrid).
