@@ -21,6 +21,8 @@
 - Seeds / days / datasets used:
 - Parameter plateau screenshot or table (not a single best point):
 - Out-of-sample split used:
+- Configs tried on this data (N, all of them):
+- PBO (CSCV, S=…): … · Deflated Sharpe: … · MinBTL vs T: … · VERDICT line:
 
 ## Checklist (RULES.md)
 

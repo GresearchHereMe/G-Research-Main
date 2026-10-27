@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import itertools
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -18,7 +18,8 @@ class SweepRow:
     train_sharpe: float
     test_sharpe: float
     trips: int
-    plateau: float  # median train PnL over this config and its grid neighbours
+    plateau: float  # median TRAIN Sharpe over this config and its grid neighbours
+    pnl: np.ndarray = field(repr=False, compare=False, default_factory=lambda: np.zeros(0))
 
 
 def _sharpe(pnl: np.ndarray) -> float:
@@ -54,20 +55,23 @@ def sweep_pair(
                                static_beta=beta, static_alpha=alpha,
                                stop_z=max(base.stop_z, entry + 1.5))
         res = backtest.run_pair(py, px, params, lag=lag, cost_bps=cost_bps)
-        train, test = res.step_pnl[:split], res.step_pnl[split:]
-        raw[(hedge, entry, hl, ex)] = (params, train, test, res.metrics["round_trips"])
+        raw[(hedge, entry, hl, ex)] = (params, res.step_pnl, split, res.metrics["round_trips"])
     return _rank(raw, entries, halflives)
 
 
 def _rank(raw: dict, entries: tuple, halflives: tuple) -> list[SweepRow]:
+    """Objective = train Sharpe (scale-free); size is set afterwards from limits and risk."""
+    train_sharpe = {key: _sharpe(pnl[:split]) for key, (_, pnl, split, _) in raw.items()}
     rows = []
-    for (hedge, entry, hl, ex), (params, train, test, trips) in raw.items():
+    for (hedge, entry, hl, ex), (params, pnl, split, trips) in raw.items():
         ei, hi = entries.index(entry), halflives.index(hl)
         neighbours = [
-            float(np.sum(raw[(hedge, entries[i], halflives[j], ex)][1]))
+            train_sharpe[(hedge, entries[i], halflives[j], ex)]
             for i in range(max(ei - 1, 0), min(ei + 2, len(entries)))
             for j in range(max(hi - 1, 0), min(hi + 2, len(halflives)))
         ]
+        train, test = pnl[:split], pnl[split:]
         rows.append(SweepRow(params, float(np.sum(train)), float(np.sum(test)),
-                             _sharpe(train), _sharpe(test), trips, float(np.median(neighbours))))
+                             _sharpe(train), _sharpe(test), trips,
+                             float(np.median(neighbours)), pnl))
     return sorted(rows, key=lambda r: r.plateau, reverse=True)

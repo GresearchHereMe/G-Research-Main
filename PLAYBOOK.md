@@ -275,7 +275,50 @@ the inventory across strategies before sending orders; one risk gate for all.
   "accurate backtesting is the foundation").
 - Agent-based mode: synthetic bots from §4.2 so our orders move the market and bots react.
 - Overfitting defence: few parameters, plateau selection, walk-forward / out-of-sample days,
-  Monte Carlo over seeds, deflated Sharpe (Bailey & López de Prado, 2014) when comparing many runs.
+  Monte Carlo over seeds, PBO + Deflated Sharpe (§7.1).
+
+### 7.1 Objective and overfitting control (binding — RULES.md §5)
+
+**Objective.** We want maximum PnL, but we *select* on **Sharpe** and then **size to the
+limits**. PnL = size × edge; once size is capped by position limits, the config with the best
+risk-adjusted return gives the most PnL per unit of risk. Selecting on raw PnL rewards configs
+that simply took more risk (more time in market, larger effective size) and is noisier, so it
+overfits faster. The competition is a tournament: when leading, cut variance; when behind late,
+more size on a *validated* edge is rational — never add variance by adding parameters.
+
+**Why.** Try N configs on one dataset and the best one looks good by luck: the expected maximum
+Sharpe of N skill-less strategies is ≈ σ_SR·[(1−γ)Φ⁻¹(1−1/N) + γΦ⁻¹(1−1/(Ne))] (≈ 3.25σ_SR for
+N = 1000). Tonight we tune on one short sample, which is exactly where this bites.
+
+**Tools** (`src/gqc/overfit.py`, `research.overfit_report`, printed by `sweep_pair.py` and
+`templates/research_template.py`):
+
+| Measure | What it answers | Source |
+|---|---|---|
+| **PBO** via CSCV | Split the PnL matrix (T steps × N configs) into S blocks; for every half/half split pick the in-sample winner and find its out-of-sample rank. PBO = P(winner ranks below the OOS median). | Bailey, Borwein, López de Prado & Zhu (2017) |
+| **Deflated Sharpe** | P(true Sharpe > what the best of N noise trials would show), adjusted for skew, kurtosis, length | Bailey & López de Prado (2014) |
+| **MinBTL** | Steps needed so N trials can't produce this Sharpe by luck: `2 ln N / SR²` | Bailey et al. (2014) |
+| OOS/IS decay | Median OOS Sharpe ÷ median IS Sharpe of the CSCV winner | — |
+
+**Gates** (`research.verdict`): PBO ≤ 0.2 **and** DSR ≥ 0.95 **and** T ≥ MinBTL → use the
+tuned params, full size. PBO ≤ 0.5 and DSR ≥ 0.5 → plateau params, reduced size. Otherwise →
+reject the tuning; run the simplest default rule small or not at all.
+
+**Practice check** (synthetic data): real pair → PBO 0.00, DSR 1.000, decay 0.89 → OK.
+Two independent random walks → P(OOS loss) 0.78, DSR 0.25, decay −0.41 → REJECT.
+
+**Caveats we know about.**
+- PBO from **one** sample is itself noisy: on a single pure-noise sample we measured 0.11 even
+  though the expectation is 0.5. Never gate on PBO alone; require DSR and a plateau too.
+- **Count every trial.** N must include manual tweaks and abandoned ideas tried on today's data;
+  undercounting N inflates DSR. Correlated configs make the effective N smaller, so raw N is
+  conservative — that is the side we want to err on.
+- Positions held over many steps make PnL autocorrelated; per-step Sharpe then overstates
+  significance (Lo, 2002). Treat a borderline DSR as CAUTION.
+- CSCV assumes the blocks are comparable (stationarity). A regime change inside the data makes
+  every in-sample choice look overfit; check the price plot before blaming the strategy.
+- Keep grids coarse (≤ 3 knobs × 3–4 values). Derive what you can from data (half-life from an
+  OU fit, entry threshold from round-trip cost) instead of tuning it.
 
 ---
 
@@ -320,8 +363,13 @@ diagnose which behaviour is exploitable, then write `decide()` for that behaviou
 uv run python scripts/diagnose.py data/round1.csv [--trades data/round1_trades.csv]
 # 2. If pairs look cointegrated, confirm out of sample
 uv run python scripts/screen_pairs.py data/round1.csv
-# 3. Write logic in templates/skeleton.py decide() for the behaviour found (cheat sheet below)
-# 4. Pairs only: tune by plateau, or build from the ready pairs module
+# 3. Prototype the idea + a coarse grid
+cp templates/research_template.py research/idea1.py   # edit strategy() and GRID
+# 4. Gates G0-G4 + frequency search -> DECISION, size, every/band (AGENTS.md §5-§9)
+uv run python scripts/evaluate_algo.py research/idea1.py data/round1.csv --cost-bps 1
+# 5. Port into templates/skeleton.py decide(); set LIMITS, SIZE_FRACTION, RISK; replay it
+uv run python scripts/replay_skeleton.py submissions/round1-v1.py data/round1.csv
+# 6. Pairs only: tune by plateau (prints PBO/DSR), or build from the ready pairs module
 uv run python scripts/sweep_pair.py data/round1.csv --y A --x B
 uv run python scripts/make_submission.py --config cfg.json --out submissions/round1-v1.py
 ```
@@ -359,4 +407,7 @@ Gatev, Goetzmann & Rouwenhorst (2006) *RFS* "Pairs Trading"; Bertram (2010) *Phy
 "Analytic solutions for optimal statistical arbitrage trading"; Avellaneda & Stoikov (2008)
 *Quantitative Finance*; Stoikov (2018) *Quantitative Finance* "The micro-price";
 Lo & MacKinlay (1988) *RFS* variance ratio; Bailey & López de Prado (2014) "The Deflated Sharpe
-Ratio"; Chan (2013) *Algorithmic Trading*.
+Ratio", *J. Portfolio Management*; Bailey, Borwein, López de Prado & Zhu (2017) "The Probability
+of Backtest Overfitting", *J. Computational Finance*; Bailey, Borwein, López de Prado & Zhu
+(2014) "Pseudo-Mathematics and Financial Charlatanism", *Notices of the AMS* (MinBTL);
+Lo (2002) "The Statistics of Sharpe Ratios", *FAJ*; Chan (2013) *Algorithmic Trading*.
