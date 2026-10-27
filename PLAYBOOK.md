@@ -45,7 +45,11 @@ scoring rule, position limits, fees, tick size, whether bots are visible, number
 
 ### 1.2 Upcoming / recent dates seen
 
-- **London — Wed 4 Nov 2026, 17:30–22:00, 1 Soho Place** ([page](https://www.gresearch.com/events/london-quant-challenge-2026/)).
+- **Our event: ETH Zürich — Tue 27 Oct 2026, 17:30–21:30, Hauptgebäude, Rämistrasse 101**
+  ([page](https://www.gresearch.com/events/eth-zurich-quant-challenge-2026/)). "Cointegration
+  challenge … unseen, real world data sets", data provided at the event. Team size and laptop
+  requirements not stated — bring charged laptops + chargers anyway.
+- London — Wed 4 Nov 2026, 17:30–22:00, 1 Soho Place ([page](https://www.gresearch.com/events/london-quant-challenge-2026/)).
 - Oxford 15 Oct 2026, Berkeley 5 Oct 2026 (past). EPFL 2024 drew 50+ PhD students
   ([SIAM EPFL](https://siam.epfl.ch/2024/10/23/g-research-quant-finance-workshop-wednesday-16th-october-2/)).
 
@@ -305,6 +309,36 @@ last-known-good version, calls the kill decision.
 
 **Cadence:** submit the safe baseline within the first 10 minutes → read results → change **one**
 thing → resubmit. Keep `submissions/round-N-vK.py` with a one-line note on each.
+
+**Principle: no trading logic is fixed before the event.** We observe the data and the book,
+diagnose which behaviour is exploitable, then write `decide()` for that behaviour.
+
+**Flow when data arrives** (save as `data/round1.csv`; book/trades as CSV if offered):
+
+```bash
+# 1. OBSERVE — what behaviour exists? (prices, order book, trades/counterparties)
+uv run python scripts/diagnose.py data/round1.csv [--trades data/round1_trades.csv]
+# 2. If pairs look cointegrated, confirm out of sample
+uv run python scripts/screen_pairs.py data/round1.csv
+# 3. Write logic in templates/skeleton.py decide() for the behaviour found (cheat sheet below)
+# 4. Pairs only: tune by plateau, or build from the ready pairs module
+uv run python scripts/sweep_pair.py data/round1.csv --y A --x B
+uv run python scripts/make_submission.py --config cfg.json --out submissions/round1-v1.py
+```
+
+| Diagnose says | Write in `decide()` | Playbook |
+|---|---|---|
+| VR < 0.8, negative ac1 | fade deviations from EWM mean (z-score) | §5.2 |
+| VR > 1.2 | follow moves / don't fade | §5.2 |
+| `A leads B` | trade B on A's last move | §4.1 |
+| pair `TRADE` in screen | spread z-score (`src/gqc/core.py` ready-made) | §5.1 |
+| imbalance corr ≥ 0.1 | fair = microprice; skew quotes toward it | §5.3 |
+| wide spread, stale quotes | quote inside spread / take stale quotes | §4.2 |
+| party markout < 0 | trade against that party / quote to it | §4.2 |
+| party markout > 0 | follow that party; never be on the other side | §4.2 |
+
+If their example strategy uses a static hedge ratio and fixed bands, the cheap upgrades are
+online hedge (Kalman/EWM), exit at mean, stop at |z| > 4.
 
 ---
 

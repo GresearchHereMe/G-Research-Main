@@ -4,8 +4,23 @@ Goal: maximise PnL in the G-Research cointegration (pairs trading) challenge on 
 with a backtester rigorous enough that what wins locally also wins on the night.
 Strategy background lives in [PLAYBOOK.md](PLAYBOOK.md); process rules in [RULES.md](RULES.md).
 
-**Event date (assumed, confirm):** London, Wed 4 Nov 2026, 17:30 → T-0. Today 27 Oct = T-8.
-If the date differs, shift the T-minus labels; the order of phases stays.
+**Event: ETH Zürich, TODAY Tue 27 Oct 2026, 17:30–21:30.** The multi-day phases below (§4) are
+the long-term roadmap; §0 is what actually happens today.
+
+## 0. Same-day plan (27 Oct 2026)
+
+| Time (CET) | Who | What | Status |
+|---|---|---|---|
+| 09:30–10:00 | Claude | Guardrails, playbook, plan (PR #1) | done |
+| 10:00–11:30 | Claude | Event-day kit: `core.py` stdlib trader, stats/screen, backtester, sweep, submission builder, practice data (PR #2) | done |
+| 11:30–13:00 | Team | Review + merge PR #1 then #2 (non-author merges); every laptop: `uv sync`, `uv run pytest`, hooks enabled | todo |
+| 10:15–11:00 | Claude | Observe-first tooling: `diagnose.py`, `templates/skeleton.py`, synthetic book with bots (PR #2) | done |
+| 13:00–15:00 | Team | **Rehearsal**: one person generates practice data blind; others run `diagnose.py`, name the behaviours, write `decide()` in the skeleton, in < 30 min | todo |
+| 15:00–16:30 | Team | Fix whatever hurt in rehearsal; no strategy is frozen — only tools and the skeleton | todo |
+| 17:30–21:30 | Team | Event: briefing questions (PLAYBOOK §9) → baseline in 10 min → one change per iteration | — |
+
+Roles at the event: **Driver** (pastes/submits), **Analyst** (runs screen/sweep on new data),
+**Risk/ops** (limits, costs, last-known-good, kill decision).
 
 ---
 
