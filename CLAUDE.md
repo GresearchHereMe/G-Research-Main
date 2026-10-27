@@ -14,19 +14,18 @@ pushes to `main`, force pushes, `--no-verify`, `gh pr merge`, `gh pr review --ap
 branch-protection changes. If it blocks you, stop and tell the user. Never rephrase a command
 to slip past it, and never edit the hook or `.claude/settings.json` to weaken it.
 
-### Tools to use for this project
+### Skills and tools
 
-- **Alpaca MCP — market data only** (`get_stock_bars`, `get_stock_quotes`, `get_stock_trades`,
-  `get_crypto_bars`; use `feed: "iex"`). Trading/account tools are denied in
-  `.claude/settings.json`; never request them. Large pulls flood context: prefer small samples.
-- **context7 / docs-lookup** for statsmodels, numpy, scipy API details before coding against them.
-- **WebSearch / Exa** for research; cite sources in PLAYBOOK.md.
-- **Skills:** `quant-analyst` (strategy and backtest checklist), `python-patterns`,
-  `python-testing`, `tdd-workflow`, `dataviz` (research charts), `verification-loop` (before PRs).
-- **Agents:** `python-reviewer` after writing Python; `tdd-guide` for new features.
+Use the skill map in AGENTS.md §11 — invoke the listed skill via the Skill tool when its
+situation applies. Claude-only details:
+
+- **Alpaca MCP:** market data only, `feed: "iex"`; trading/account tools are denied in
+  `.claude/settings.json`. Large pulls flood context — fetch small samples or write a script.
+- During a live round, prefer speed: 2-minute brainstorming, no plan documents, but never skip
+  `evaluate_algo.py` (G0–G4) or `replay_skeleton.py`.
 
 ### Working style
 
-- Put findings about the competition into PLAYBOOK.md, not only into chat.
-- When the event data arrives, run `screen_pairs.py` → `sweep_pair.py` → `make_submission.py`
-  (AGENTS.md commands) before writing any new code.
+- Put findings about the competition into PLAYBOOK.md and trial results into
+  `research/LOG.md`, not only into chat.
+- When event data arrives, follow the pipeline in AGENTS.md §5 before writing new code.

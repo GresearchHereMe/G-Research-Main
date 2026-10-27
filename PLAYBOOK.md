@@ -363,11 +363,13 @@ diagnose which behaviour is exploitable, then write `decide()` for that behaviou
 uv run python scripts/diagnose.py data/round1.csv [--trades data/round1_trades.csv]
 # 2. If pairs look cointegrated, confirm out of sample
 uv run python scripts/screen_pairs.py data/round1.csv
-# 3. Prototype the idea + a coarse grid, check overfitting, obey the VERDICT (§7.1)
+# 3. Prototype the idea + a coarse grid
 cp templates/research_template.py research/idea1.py   # edit strategy() and GRID
-uv run python research/idea1.py data/round1.csv
-# 4. Port the surviving rule into templates/skeleton.py decide(); size to limits
-# 5. Pairs only: tune by plateau (prints PBO/DSR), or build from the ready pairs module
+# 4. Gates G0-G4 + frequency search -> DECISION, size, every/band (AGENTS.md §5-§9)
+uv run python scripts/evaluate_algo.py research/idea1.py data/round1.csv --cost-bps 1
+# 5. Port into templates/skeleton.py decide(); set LIMITS, SIZE_FRACTION, RISK; replay it
+uv run python scripts/replay_skeleton.py submissions/round1-v1.py data/round1.csv
+# 6. Pairs only: tune by plateau (prints PBO/DSR), or build from the ready pairs module
 uv run python scripts/sweep_pair.py data/round1.csv --y A --x B
 uv run python scripts/make_submission.py --config cfg.json --out submissions/round1-v1.py
 ```

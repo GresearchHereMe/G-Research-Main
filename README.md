@@ -26,12 +26,14 @@ Requirements: Python ≥ 3.11, [uv](https://docs.astral.sh/uv/), `gh` CLI for PR
 
 ## Event-day kit
 
-No trading logic is fixed in advance: **observe → diagnose → write `decide()`**.
+No trading logic is fixed in advance. Pipeline (full version: [AGENTS.md](AGENTS.md) §5):
+**observe → prototype → gates G0–G4 → port to skeleton → replay → submit**.
 
 ```bash
-uv run python scripts/make_practice_data.py data/practice_book.csv --book  # rehearsal book + bots
-uv run python scripts/diagnose.py data/practice_book.csv --trades data/practice_book_trades.csv
-# edit templates/skeleton.py decide() for what diagnose found; paste that file
+uv run python scripts/diagnose.py data/round1.csv                         # S0 observe
+cp templates/research_template.py research/idea1.py                       # S1 prototype
+uv run python scripts/evaluate_algo.py research/idea1.py data/round1.csv  # S2 GO / NO-GO + size
+uv run python scripts/replay_skeleton.py submissions/r1-v1.py data/round1.csv   # S3 check port
 ```
 
 Pairs-specific tools (use only if the data is a pairs game):

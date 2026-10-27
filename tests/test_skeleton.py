@@ -36,6 +36,25 @@ def test_clip_respects_position_limits_and_order_caps():
     assert ns["clip_orders"]({"A": 3}, {"A": 10}) == {}
 
 
+def test_drawdown_kill_switch_flattens_then_pauses():
+    ns = _load()
+    ns["RISK"].update({"max_drawdown": 5.0, "halt_steps": 2})
+    ns["decide"] = lambda book, positions, state: {"A": 1}
+    ns["step"]({"A": 100.0}, {"A": 10})
+    orders = ns["step"]({"A": 99.0}, {"A": 10})  # loss 10 > 5 -> flatten
+    assert orders == {"A": -10}
+    assert ns["step"]({"A": 99.0}, {"A": 0}) == {}  # still halted
+    assert ns["step"]({"A": 99.0}, {"A": 0}) == {}
+    assert ns["step"]({"A": 99.0}, {"A": 0}) == {"A": 1}  # resumed
+
+
+def test_gross_cap_scales_orders():
+    ns = _load()
+    ns["RISK"].update({"max_gross": 1000.0})
+    ns["decide"] = lambda book, positions, state: {"A": 20}
+    assert ns["step"]({"A": 100.0}, {"A": 0}) == {"A": 10}
+
+
 def test_step_survives_exception_in_decide():
     ns = _load()
 
