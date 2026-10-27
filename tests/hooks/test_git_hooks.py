@@ -1,8 +1,27 @@
 """Tests for .githooks/pre-commit and .githooks/pre-push (human-side guard)."""
 
+import shutil
 import subprocess
+from pathlib import Path
 
+import pytest
 from conftest import GITHOOKS_DIR
+
+
+def _find_sh() -> str | None:
+    """Locate a POSIX sh; on Windows fall back to the one bundled with Git for Windows."""
+    sh = shutil.which("sh")
+    if sh:
+        return sh
+    git = shutil.which("git")
+    if git:
+        bundled = Path(git).resolve().parents[1] / "bin" / "sh.exe"
+        if bundled.exists():
+            return str(bundled)
+    return None
+
+
+SH = _find_sh()
 
 
 def _use_repo_hooks(repo, git):
@@ -24,8 +43,11 @@ def test_pre_commit_allows_feature_branch(temp_repo, git):
 
 
 def _pre_push(stdin: str) -> subprocess.CompletedProcess:
+    # Run via sh explicitly: Windows cannot exec a shebang script directly.
+    if SH is None:
+        pytest.skip("no POSIX sh available")
     return subprocess.run(
-        [str(GITHOOKS_DIR / "pre-push"), "origin", "https://example.invalid/r.git"],
+        [SH, str(GITHOOKS_DIR / "pre-push"), "origin", "https://example.invalid/r.git"],
         input=stdin,
         capture_output=True,
         text=True,
