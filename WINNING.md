@@ -258,19 +258,19 @@ orders. Zero *targets* can request liquidation. Define error behavior using the 
 | [stats.py](src/gqc/stats.py), [screen_pairs.py](scripts/screen_pairs.py) | OLS, residual tests with cointegration critical values, half-life, both pair directions | A `TRADE` label is not a profitable strategy or proof the old hedge transfers |
 | [core.py](src/gqc/core.py) | Causal online static/EWM/Kalman signals, warm-up, exit/stop logic, portfolio target netting | Complete exchange order management or a monetary-loss kill switch |
 | [backtest.py](src/gqc/backtest.py) | Bar targets, execution delay, linear spread/fee costs, marked PnL | Depth, resting orders, queues, partial fills, impact, or independent leg fills |
-| [sweep.py](src/gqc/sweep.py) | Train-Sharpe neighborhood median ranking | Fully causal static training scores; see section 8 |
-| [research.py](src/gqc/research.py), [overfit.py](src/gqc/overfit.py) | Generic grids and initial PBO/DSR/MinBTL checks | An untouched holdout, all historical trials, or automatic enforcement of causality |
-| [pipeline.py](src/gqc/pipeline.py) | Candidate integrity probes, cost/delay stress, time-slice and drawdown gates, frequency variants | Proof of causality for every candidate, train-plateau selection, or an untouched holdout |
-| [skeleton.py](templates/skeleton.py) | Empty `decide()`, bounded per-symbol history, clipping/error counter; new optional risk gates | A trading strategy, persistent-order manager, or fill-accurate account PnL |
-| [replay.py](src/gqc/replay.py) | Replays a `step(book, positions)` file using delayed full fills and linear costs | An order-book matching model or confirmed organiser semantics |
+| [sweep.py](src/gqc/sweep.py) | Formation-only static fitting, development plateau ranking, selected-config holdout report | Final portfolio sizing or exchange execution |
+| [research.py](src/gqc/research.py), [overfit.py](src/gqc/overfit.py) | Current-grid PBO; DSR/MinBTL with recorded trial counts; initial-equity drawdown | Historical return matrices or automatic causality enforcement when called directly |
+| [pipeline.py](src/gqc/pipeline.py) | Raw integrity probes, development plateau selection at 2× costs, stress/risk gates and a look-once holdout | Proof of causality for every candidate or PBO over historical searches |
+| [skeleton.py](templates/skeleton.py) | Empty `decide()`, bounded history, finite-order checks, worst-case position/gross guards including supplied resting orders | A trading strategy, persistent-order manager, or fill-accurate account PnL |
+| [replay.py](src/gqc/replay.py) | Delayed full fills, linear costs, marks retained across quote gaps; CLI rejects invalid outputs/errors | An order-book matching model or confirmed organiser semantics |
 | [make_submission.py](scripts/make_submission.py) | Bundles the pairs core/config; isolated stdlib/bare-`exec()` smoke check | Bundling a custom skeleton or validating the final platform adapter |
 | [synthetic.py](src/gqc/synthetic.py) | Seeded pairs, relationship breaks, independent walks, book/bot diagnostic exercises | A reactive multi-agent exchange or realistic passive-fill backtest |
 
 **There is no implemented order-book backtest engine in this snapshot.** The book CSV
 generator creates observations and trades; it does not match our submitted orders. The book
-engine in [PLAN.md](PLAN.md) is a roadmap. Also, RULES §6 still names an absent
-`submit/dryrun.py`, while the newer AGENTS.md names `replay_skeleton.py`. Align that requirement
-with the actual tooling. Packaging and local bar replay do not establish platform compatibility.
+engine in [PLAN.md](PLAN.md) is a roadmap. RULES §6 names `replay_skeleton.py` and the pairs
+builder's isolated smoke check. Packaging and local bar replay do not establish platform
+compatibility.
 
 Preserve the existing strengths: causal core prefix tests, seeded synthetic ground truth,
 hand-computed PnL tests, constant-sized pair estimators, and netting before continuous target
@@ -279,8 +279,8 @@ checks do not cover all of the defects below.
 
 ## 8. Concrete findings and the additions worth making
 
-These are ordered by their potential to invalidate decisions or submissions. Changes should
-have targeted regression tests and a separate review; no strategy/engine fixes are included here.
+The findings below record the original review at `660e7c5`; read the status notes before
+treating a historical probe as a current defect. Fixes have targeted regression tests.
 
 > **Status (fix/review-findings PR):** each finding below has a regression test in
 > `tests/test_review_findings.py`. Fixed: **A** (static hedge fitted on a formation window
@@ -295,9 +295,18 @@ have targeted regression tests and a separate review; no strategy/engine fixes a
 > positions held over the interval or uses platform PnL, gross cap allows reductions, risk
 > exits pass the order guard until flat, G0 checks raw targets, pipeline selects on a
 > development window with a G5 holdout gate).
+> **Further pre-event fixes:** the pipeline now selects a numeric-grid plateau at 2× costs;
+> the direct research template uses the same gates and trial ledger. Pipeline/replay drawdown
+> includes initial equity; replay retains inventory marks across quote gaps and rejects
+> non-finite output or recorded errors. The skeleton rejects non-finite orders and reserves
+> gross capacity for resting orders, including during risk exits. Cross-asset book diagnostics
+> align actual timestamps, preserving missing quotes rather than inventing fills.
+>
 > **Still open:** `screen_pairs.py` refits on the later window (treat it as validation);
-> `sweep_pair.py` drops missing paired rows (warns); `pipeline.evaluate()` picks the max-Sharpe
-> config within development rather than a plateau; manual trials still need `research/LOG.md`.
+> `sweep_pair.py` drops missing paired rows (warns); manual trials need `research/LOG.md`.
+> Historical trial counts affect DSR/MinBTL, but PBO uses only the current return matrix.
+> The ledger cannot reconstruct historical returns or their Sharpe dispersion. Platform
+> adapter, fill/fee rules, terminal marking and account-PnL integration await the briefing.
 
 ### A. Static sweep training scores use hindsight — confirmed
 

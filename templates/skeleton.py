@@ -22,7 +22,7 @@ SIZE_FRACTION = 1.0  # from evaluate_algo.py: GO 1.0, GO-REDUCED 0.5 (scale your
 RISK = {
     "max_drawdown": None,  # loss from peak equity that triggers flatten + pause
     "halt_steps": 50,  # steps to stay out after a drawdown stop (flattening continues until flat)
-    "max_gross": None,  # cap on sum(|position| * mid); risk-reducing orders always allowed
+    "max_gross": None,  # worst-case gross with resting/new fills; no added risk above the cap
 }
 HISTORY = 500  # ticks of mid history kept per symbol
 EWM_HALFLIFE = 50.0
@@ -113,26 +113,35 @@ def risk_gate(positions, state, outstanding=None):
     return None
 
 
-def cap_gross(orders, positions, state):
-    """Scale only exposure-INCREASING orders so gross after fills stays within max_gross."""
+def cap_gross(orders: dict, positions: dict, state: State,
+              outstanding: "dict | None" = None) -> dict:
+    """Reserve gross for any subset of resting/new fills; reductions cannot fund new risk."""
     cap = RISK.get("max_gross")
     if cap is None or not orders:
         return orders
+    outstanding = outstanding or {}
     mids = {s: b["mid"] for s, b in state.books.items()}
-    reducing = {s: q for s, q in orders.items()
-                if abs(positions.get(s, 0) + q) <= abs(positions.get(s, 0))}
-    increasing = {s: q for s, q in orders.items() if s not in reducing}
-    after = dict(positions)
-    for s, q in reducing.items():
-        after[s] = after.get(s, 0) + q
-    headroom = cap - sum(abs(q) * mids.get(s, 0.0) for s, q in after.items())
-    added = sum((abs(after.get(s, 0) + q) - abs(after.get(s, 0))) * mids.get(s, 0.0)
-                for s, q in increasing.items())
-    if added <= headroom:
+    gross, added = 0.0, {}
+    for sym in set(positions) | set(outstanding) | set(orders):
+        pos, qty = positions.get(sym, 0), orders.get(sym, 0)
+        buys, sells = outstanding.get(sym, (0, 0))
+        if not all(math.isfinite(v) for v in (pos, buys, sells)) or min(buys, sells) < 0:
+            raise ValueError("invalid position or outstanding quantity for " + sym)
+        if not any((pos, buys, sells, qty)):
+            continue
+        if sym not in mids:
+            raise ValueError("no price for gross exposure in " + sym)
+        high, low = pos + buys, pos - sells
+        before = max(abs(high), abs(low))
+        after = max(abs(high + max(qty, 0)), abs(low + min(qty, 0)))
+        gross += before * mids[sym]
+        added[sym] = (after - before) * mids[sym]
+    headroom, increase = max(cap - gross, 0.0), sum(added.values())
+    if increase <= headroom:
         return orders
-    scale = max(headroom, 0.0) / added if added > 0 else 0.0
-    scaled = {s: q * scale for s, q in increasing.items() if q * scale}
-    return {**reducing, **scaled}
+    scale = headroom / increase
+    return {s: q if added.get(s, 0) == 0 else q * scale for s, q in orders.items()
+            if q and (added.get(s, 0) == 0 or scale > 0)}
 
 
 def decide(book, positions, state):
@@ -140,11 +149,13 @@ def decide(book, positions, state):
     return {}
 
 
-def clip_orders(orders, positions, outstanding=None):
+def clip_orders(orders: dict, positions: dict, outstanding: "dict | None" = None) -> dict:
     """Worst case: all resting orders fill. Apply MAX_ORDER, LOTS (toward zero), then LIMITS."""
     outstanding = outstanding or {}
     out = {}
     for sym, qty in orders.items():
+        if not math.isfinite(qty):
+            raise ValueError("non-finite order quantity for " + sym)
         pos = positions.get(sym, 0)
         cap = MAX_ORDER.get(sym)
         if cap is not None:
@@ -165,16 +176,16 @@ def clip_orders(orders, positions, outstanding=None):
     return out
 
 
-def step(book, positions=None, outstanding=None, account_pnl=None):
+def step(book: dict, positions: "dict | None" = None, outstanding: "dict | None" = None,
+         account_pnl: "float | None" = None) -> dict:
     """Platform entry point. Never raises; on error returns no orders and counts it."""
     positions = positions or {}
     try:
         update_state(book, positions, STATE, account_pnl)
         forced = risk_gate(positions, STATE, outstanding)
-        if forced is not None:
-            return forced
-        orders = clip_orders(decide(book, positions, STATE) or {}, positions, outstanding)
-        return clip_orders(cap_gross(orders, positions, STATE), positions, outstanding)
+        orders = forced if forced is not None else decide(book, positions, STATE) or {}
+        orders = clip_orders(orders, positions, outstanding)
+        return clip_orders(cap_gross(orders, positions, STATE, outstanding), positions, outstanding)
     except Exception as exc:  # noqa: BLE001 - a crash would cost the round
         STATE.errors += 1
         if STATE.errors <= 3:

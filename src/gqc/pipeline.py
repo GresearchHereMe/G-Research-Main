@@ -1,7 +1,7 @@
 """The gate sequence every algo passes before it trades (AGENTS.md "Algo pipeline").
 
 G0 integrity   no lookahead, deterministic, finite positions                (hard)
-G1 overfit     PBO (CSCV) + Deflated Sharpe + MinBTL over ALL configs tried   (hard if REJECT)
+G1 overfit     current-grid PBO + DSR/MinBTL with recorded trial counts       (hard if REJECT)
 G2 robustness  best config still profitable at 2x costs and +1 step lag      (hard)
 G3 stability   positive PnL in >= 3 of 4 development slices                  (soft)
 G4 risk        development PnL >= 2 x max drawdown                            (soft)
@@ -11,7 +11,9 @@ Selection, PBO/DSR and G1-G4 use only the development window [0, train_frac); G0
 RAW strategy output (before throttling) for causality and finiteness.
 
 Trading frequency is part of the search: every strategy is also run rebalancing only every
-k steps and with a no-trade band, and those variants count as trials.
+k steps and with a no-trade band, and those variants count as trials. Selection ranks the
+median Sharpe of neighbouring numeric grid values on development data at doubled costs;
+categorical choices are compared separately. Ties prefer the candidate's own stressed Sharpe.
 Decision: any hard fail -> NO-GO (size 0); any soft fail or CAUTION -> GO-REDUCED (half the
 limits); else GO (full limits).
 """
@@ -20,6 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from numbers import Real
 
 import numpy as np
 
@@ -96,8 +99,26 @@ def _slices_positive(pnl: np.ndarray, k: int = 4) -> int:
 
 
 def _max_drawdown(pnl: np.ndarray) -> float:
-    equity = np.cumsum(pnl)
-    return float(np.max(np.maximum.accumulate(equity) - equity)) if len(equity) else 0.0
+    return research.max_drawdown(pnl)
+
+
+def _select_plateau(configs: Sequence[Mapping], grid: Mapping[str, Sequence],
+                    scores: np.ndarray) -> int:
+    """Median over immediate numeric neighbours; categorical settings stay fixed."""
+    plateaus = []
+    for cfg in configs:
+        near = {}
+        for key, values in grid.items():
+            if all(isinstance(v, Real) and not isinstance(v, bool) for v in values):
+                ordered = sorted(set(values))
+                i = ordered.index(cfg[key])
+                near[key] = ordered[max(0, i - 1) : i + 2]
+            else:
+                near[key] = [cfg[key]]
+        neighbours = [i for i, other in enumerate(configs)
+                      if all(other[k] in near[k] for k in grid)]
+        plateaus.append(float(np.median(scores[neighbours])))
+    return max(range(len(configs)), key=lambda i: (plateaus[i], scores[i], -i))
 
 
 def _decide(gates: Sequence[Gate], caution: bool) -> tuple[str, float]:
@@ -135,8 +156,9 @@ def evaluate(
     configs, matrix = research.grid_returns(run, prices, full_grid, lag, cost_bps)
     split = int(len(matrix) * train_frac)
     dev = matrix[:split]
-    srs = np.atleast_1d(overfit.sharpe(dev, axis=0))
-    best_idx = int(np.argmax(srs))
+    _, stressed = research.grid_returns(run, prices, full_grid, lag, 2 * cost_bps)
+    srs = np.atleast_1d(overfit.sharpe(stressed[:split], axis=0))
+    best_idx = _select_plateau(configs, full_grid, srs)
     best = configs[best_idx]
     report = research.overfit_report(configs, dev, selected=best_idx, prior_trials=prior_trials)
     raw_cfg = {k: v for k, v in best.items() if k not in ("every", "band")}
@@ -146,7 +168,8 @@ def evaluate(
     base_cfg = {k: v for k, v in best.items() if k != "every"}
     lines = (
         f"Development window [0, {split}) used for selection; holdout [{split}, {len(matrix)})",
-        *report[:-1],
+        "Selection: neighbouring-grid median Sharpe at 2x costs (categorical settings fixed)",
+        *report,
         *(f"{g.name:14} {'PASS' if g.passed else 'FAIL'}{' (hard)' if g.hard else ''}: {g.detail}"
           for g in gates),
         *_frequency_table(run, prices, base_cfg, frequencies, lag, cost_bps, split),

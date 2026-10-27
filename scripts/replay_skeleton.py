@@ -19,7 +19,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from gqc import io, overfit, replay
+from gqc import io, overfit, replay, research
 
 
 def main() -> int:
@@ -31,13 +31,23 @@ def main() -> int:
     args = parser.parse_args()
     ns = replay.load_submission(args.submission)
     _, prices = io.load_prices(args.csv)
-    res = replay.replay(ns["step"], prices, args.lag, args.cost_bps)
-    equity = np.cumsum(res.pnl)
-    max_dd = float(np.max(np.maximum.accumulate(equity) - equity))
+    try:
+        res = replay.replay(ns["step"], prices, args.lag, args.cost_bps)
+    except (ValueError, TypeError) as exc:
+        print(f"ERROR: {exc}")
+        return 1
+    values = [*res.final_positions.values(), *res.max_abs_position.values(), res.pnl.sum()]
+    if not np.all(np.isfinite(res.pnl)) or not np.all(np.isfinite(values)):
+        print("ERROR: non-finite PnL or positions")
+        return 1
+    max_dd = research.max_drawdown(res.pnl)
     state = ns.get("STATE") or ns.get("BOOK")
     print(f"PnL {res.pnl.sum():.2f}  Sharpe/step {overfit.sharpe(res.pnl):.4f}  max DD {max_dd:.2f}")
     print(f"trades {res.trades}  max |position| {res.max_abs_position}")
     print(f"final positions {res.final_positions}  step errors {getattr(state, 'errors', 'n/a')}")
+    if getattr(state, "errors", 0):
+        print(f"ERROR: submission recorded {state.errors} strategy errors")
+        return 1
     if res.trades == 0:
         print("WARNING: zero trades. Check decide()/signals, warm-up, and that target sizes are "
               ">= one lot (e.g. pairs unit_notional large enough for integer shares).")

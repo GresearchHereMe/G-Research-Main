@@ -95,6 +95,27 @@ def book_section(groups: dict[str, list[dict]], cols: dict[str, str]) -> dict[st
     return books
 
 
+def book_price_section(books: dict[str, dict]) -> None:
+    """Compare mids on the union of observed timestamps, preserving missing quotes as NaN."""
+    if not books:
+        return
+    if any(book["time"] is None for book in books.values()):
+        if len(books) > 1:
+            print("WARNING: timestamps unavailable; skipping cross-asset comparisons.")
+        reports = [{sym: book["mid"]} for sym, book in books.items()]
+    else:
+        times = np.unique(np.concatenate([book["time"] for book in books.values()]))
+        aligned = {}
+        for sym, book in books.items():
+            observed = dict(zip(book["time"], book["mid"]))
+            aligned[sym] = np.array([observed.get(t, np.nan) for t in times])
+        reports = [aligned]
+    for prices in reports:
+        observed = {sym: books[sym]["mid"] for sym in prices}
+        for line in dg.price_report(prices, observed_prices=observed):
+            print(line)
+
+
 def trade_section(path: Path, books: dict[str, dict], horizons: tuple[int, ...]) -> None:
     header, rows = read_rows(path)
     cols = detect(header, {})
@@ -149,8 +170,7 @@ def main() -> int:
         groups = by_symbol(rows, cols)
         books = book_section(groups, cols)
         print()
-        for line in dg.price_report({s: b["mid"] for s, b in books.items()}):
-            print(line)
+        book_price_section(books)
         if args.trades:
             trade_section(args.trades, books, tuple(int(h) for h in args.horizons.split(",")))
     else:
