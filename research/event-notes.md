@@ -40,6 +40,8 @@ Not the pairs game we prepared for. The game is take-or-skip with a lockout:
   game; the client test requires < 15 ms per call on average.
 - Submit via the organiser client repo (`solution.py` -> `submit.py`); resubmit any time, the
   latest submission is used; first submission sets the team password (keep it out of git).
+- Round 1 rewards: exponential, p(x) = e^(-x/10)/10 (mean 10). Round 2: not announced, best
+  score counts. Leaderboard on the organiser host, port 8080 (blocked from the cloud session).
 - Unknown: whether takers in the same turn share the reward, the reward distribution, and
   whether the distribution changes within a game. Our solution infers sharing from scores.
 
