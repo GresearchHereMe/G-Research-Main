@@ -78,6 +78,13 @@ Things that decide the winner in variant A: (1) not trading pairs that aren't co
 (2) noticing when a pair stops being cointegrated, (3) correct hedge ratio and log-spread,
 (4) thresholds that cover costs, (5) sizing. Every claim here must be re-checked at the briefing.
 
+### 1.5 What the ETH 2026 game actually was (briefing, 27 Oct)
+
+A take-or-skip game, not price-series pairs trading: each turn a reward is offered, taking it
+locks the team out for 15 turns, 2000 turns per game, other teams' (score, locked) visible.
+This is optimal stopping with a renewal cost: take iff reward > c[t] = V[t+1] - V[t+L+1]
+(stationary limit c = L x optimal reward per turn). Details: research/event-notes.md.
+
 ---
 
 ## 2. Comparable competitions — what transfers

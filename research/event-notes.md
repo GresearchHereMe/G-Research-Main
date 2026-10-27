@@ -27,8 +27,24 @@ flatten_after:          (steps − lag − margin, or None)
 RISK.max_drawdown:      (≈ 2 × backtest max DD × SIZE_FRACTION)
 ```
 
+## Briefing answers (27 Oct 2026, our own words)
+
+Not the pairs game we prepared for. The game is take-or-skip with a lockout:
+
+- `play(reward, lockout, t, T, your_score, other_scores, is_locked) -> bool`, called every
+  turn (also while locked). True = take this turn's reward; taking locks us out for
+  `lockout` (15) turns. `other_scores` = (score, is_locked) of other teams at t-1.
+- 3 rounds, T = 2000 turns per game. Rounds 1-2: four reference bots (pro, novice, greedy,
+  random), score = best value achieved. Round 3: no bots, harder, score = latest.
+- Server has numpy, pandas, stdlib. A team using > 60 s in one game is benched for that
+  game; the client test requires < 15 ms per call on average.
+- Submit via the organiser client repo (`solution.py` -> `submit.py`); resubmit any time, the
+  latest submission is used; first submission sets the team password (keep it out of git).
+- Unknown: whether takers in the same turn share the reward, the reward distribution, and
+  whether the distribution changes within a game. Our solution infers sharing from scores.
+
 ## Rounds
 
 | Round | Data file | Steps | Notes |
 |---|---|---|---|
-| | | | |
+| 1 | live server | 2000 | submissions/tradinggame_v1.py |
