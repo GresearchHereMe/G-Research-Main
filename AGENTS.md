@@ -35,7 +35,10 @@ Trading logic is **not** fixed in advance: diagnose the event data first, then w
 
 ```
 templates/skeleton.py  paste-ready shell: state, limits, never-crash wrapper; decide() is empty
+templates/research_template.py  write a strategy + grid live, get Sharpe ranking + overfit verdict
 src/gqc/diagnostics.py behaviour probes: variance ratio, lead-lag, imbalance, staleness, markouts
+src/gqc/overfit.py     PBO (CSCV), PSR / Deflated Sharpe, expected max Sharpe, MinBTL
+src/gqc/research.py    generic grid runner for any strategy + overfit report and verdict
 src/gqc/core.py        stdlib-only pairs trader (one option, copied verbatim into submissions)
 src/gqc/stats.py       OLS, ADF, Engle–Granger (MacKinnon crit), half-life, screening
 src/gqc/backtest.py    bar-level backtester: lag, costs, metrics
@@ -68,7 +71,9 @@ tests/                 pytest; tests/hooks/ covers the repo guards
 
 ## Research rules
 
-- Choose parameters by **plateau on the train window**, never by test PnL.
+- Choose parameters by **plateau of train Sharpe**, never by test PnL; then size to limits.
+- Any tuning must print `research.overfit_report` (PBO via CSCV, Deflated Sharpe, MinBTL) over
+  **all** configs tried, and the agent must follow its VERDICT. Count every trial.
 - Report the conservative setting (lag 1, realistic costs) as the headline number.
 - Correlation is not cointegration; many pairs screened ⇒ expect false positives.
 - Never commit data (`data/` is gitignored) or organiser material.

@@ -52,6 +52,11 @@ Agents follow §1 plus:
 5. Every edge needs a written *why* (mechanism), not only a backtest number.
 6. The **conservative** fill/cost model is the headline number; optimistic is context only.
 7. Correlation is not cointegration; screening many pairs needs multiple-testing discipline.
+8. **Objective: select on Sharpe, then size to limits** (maximum PnL per unit of risk).
+9. **Every tuned strategy reports PBO (CSCV) and the Deflated Sharpe** over *all* configs tried
+   on that data, plus MinBTL, and obeys the verdict: PBO ≤ 0.2 and DSR ≥ 0.95 → use tuned
+   params; PBO ≤ 0.5 and DSR ≥ 0.5 → plateau params, smaller size; else reject the tuning.
+   Count every trial, including manual tweaks (PLAYBOOK §7.1).
 
 ## 6. Submission safety
 

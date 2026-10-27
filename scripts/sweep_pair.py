@@ -5,8 +5,10 @@ Usage:
   uv run python scripts/sweep_pair.py data/prices.csv --y A --x B \
       [--train-frac 0.6] [--cost-bps 1] [--lag 1] [--notional 10000] [--no-log] [--top 15]
 
-Pick a config near the TOP of the plateau ranking whose test PnL is also positive. Never pick
-by test PnL — that turns the test window into a second training set.
+Ranking = plateau of TRAIN Sharpe (median over grid neighbours). Pick near the top whose test
+result is also positive; never pick by test PnL — that turns the test window into training data.
+The overfitting block (PBO via CSCV over ALL configs tried + Deflated Sharpe) says whether the
+search itself can be trusted; obey its VERDICT line.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from gqc import core, io, sweep
+from gqc import core, io, research, sweep
 
 
 def main() -> int:
@@ -44,14 +46,18 @@ def main() -> int:
     base = core.Params(use_log=not args.no_log, unit_notional=args.notional, warmup=args.warmup)
     rows = sweep.sweep_pair(py, px, args.train_frac, args.cost_bps, args.lag, base)
     print(f"{args.y}/{args.x}: {len(py)} rows, cost {args.cost_bps} bps, lag {args.lag}\n")
-    head = (f"{'hedge':>7} {'entry':>5} {'hl':>5} {'exit':>4} {'plateau':>10} {'train':>10} "
-            f"{'test':>10} {'shp_te':>6} {'trips':>5}")
+    head = (f"{'hedge':>7} {'entry':>5} {'hl':>5} {'exit':>4} {'plat_SR':>8} {'SR_tr':>6} "
+            f"{'SR_te':>6} {'pnl_tr':>10} {'pnl_te':>10} {'trips':>5}")
     print(head + "\n" + "-" * len(head))
     for r in rows[: args.top]:
         p = r.params
         print(f"{p.hedge:>7} {p.entry_z:5.1f} {p.halflife:5.0f} {p.exit_z:4.1f} "
-              f"{r.plateau:10.1f} {r.train_pnl:10.1f} {r.test_pnl:10.1f} "
-              f"{r.test_sharpe:6.2f} {r.trips:5d}")
+              f"{r.plateau:8.2f} {r.train_sharpe:6.2f} {r.test_sharpe:6.2f} "
+              f"{r.train_pnl:10.1f} {r.test_pnl:10.1f} {r.trips:5d}")
+    print("(SR = per-step Sharpe x sqrt(steps in window); plat_SR = median train SR of neighbours)\n")
+    configs = [r.params._asdict() for r in rows]
+    for line in research.overfit_report(configs, np.column_stack([r.pnl for r in rows])):
+        print(line)
     best = rows[0].params
     print("\nTop-plateau params (paste into submission config):")
     print(json.dumps(best._asdict(), indent=2))
