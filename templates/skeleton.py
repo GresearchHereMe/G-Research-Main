@@ -9,6 +9,8 @@ Standard library only; survives bare exec(); never raises out of `step()`.
     account_pnl (optional): platform-reported PnL; preferred over our mark-to-mid estimate
     step(...) -> {symbol: order quantity (+buy / -sell)}; every order (including risk exits)
                  passes MAX_ORDER, LOTS and LIMITS assuming all resting orders fill
+    step_targets(...) -> {symbol: target position}; same pipeline, for platforms that want
+                 positions instead of orders (on error: current positions, i.e. hold)
 """
 
 import math
@@ -18,11 +20,12 @@ from collections import deque
 LIMITS = {}  # symbol -> max absolute position          (fill in from the briefing)
 LOTS = {}  # symbol -> lot size; orders round toward zero to multiples of it
 MAX_ORDER = {}  # symbol -> max absolute order per step  (optional)
-SIZE_FRACTION = 1.0  # from evaluate_algo.py: GO 1.0, GO-REDUCED 0.5 (scale your targets by it)
+SIZE_FRACTION = 1.0  # from evaluate_algo.py: GO 1.0, GO-REDUCED 0.5; applied by target_orders()
 RISK = {
     "max_drawdown": None,  # loss from peak equity that triggers flatten + pause
     "halt_steps": 50,  # steps to stay out after a drawdown stop (flattening continues until flat)
     "max_gross": None,  # worst-case gross with resting/new fills; no added risk above the cap
+    "flatten_after": None,  # step count (1 = first call) from which to flatten and stay flat
 }
 HISTORY = 500  # ticks of mid history kept per symbol
 EWM_HALFLIFE = 50.0
@@ -97,7 +100,12 @@ def update_state(book, positions, state, account_pnl=None):
 
 
 def risk_gate(positions, state, outstanding=None):
-    """Forced orders while a drawdown stop is active ({} = stay out), else None."""
+    """Forced orders while a drawdown stop or end-of-round flatten is active ({} = stay out)."""
+    end = RISK.get("flatten_after")
+    if end is not None and state.t >= end:
+        if any(positions.values()):
+            return clip_orders({s: -q for s, q in positions.items() if q}, positions, outstanding)
+        return {}
     limit = RISK.get("max_drawdown")
     if limit is not None and state.peak - state.equity > limit:
         state.halted_until = state.t + RISK.get("halt_steps", 0)
@@ -144,8 +152,26 @@ def cap_gross(orders: dict, positions: dict, state: State,
             if q and (added.get(s, 0) == 0 or scale > 0)}
 
 
+def target_orders(targets: dict, positions: dict) -> dict:
+    """Orders that move to SIZE_FRACTION x target, capped at LIMITS. Use as decide()'s return."""
+    out = {}
+    for sym, target in targets.items():
+        want = target * SIZE_FRACTION
+        limit = LIMITS.get(sym)
+        if limit is not None:
+            want = max(-limit, min(limit, want))
+        qty = want - positions.get(sym, 0)
+        if qty:
+            out[sym] = qty
+    return out
+
+
 def decide(book, positions, state):
-    """EDIT AT THE EVENT. Return {symbol: desired order quantity}. Empty dict = do nothing."""
+    """EDIT AT THE EVENT. Return {symbol: order quantity}; empty dict = do nothing.
+
+    Prefer `return target_orders({symbol: target_position}, positions)` so SIZE_FRACTION and
+    LIMITS apply; orders returned directly are not scaled by SIZE_FRACTION.
+    """
     return {}
 
 
@@ -191,3 +217,21 @@ def step(book: dict, positions: "dict | None" = None, outstanding: "dict | None"
         if STATE.errors <= 3:
             print(f"step error #{STATE.errors}: {exc!r}", file=sys.stderr)
         return {}
+
+
+def step_targets(book: dict, positions: "dict | None" = None,
+                 outstanding: "dict | None" = None, account_pnl: "float | None" = None) -> dict:
+    """Target-position entry point: current positions plus step()'s guarded orders."""
+    positions = positions or {}
+    orders = step(book, positions, outstanding, account_pnl)
+    return {s: positions.get(s, 0) + orders.get(s, 0) for s in set(positions) | set(orders)}
+
+
+# =====================================================================================
+# ADAPTER — wire ONE of these to the platform's interface (see PLAYBOOK.md §3)
+# =====================================================================================
+# A) Per-tick callback returning orders:
+#     def on_data(book, positions): return step(book, positions)
+#
+# B) Per-tick callback returning target positions (errors hold current positions):
+#     def on_data(book, positions): return step_targets(book, positions)

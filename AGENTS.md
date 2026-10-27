@@ -48,7 +48,7 @@ single prices (close to a random walk).
 | 3 | **Lead–lag** | `A leads B by k` with \|corr\| ≥ 0.1 | research template: position in B from A's last k-step move | Must survive lag + 1 (G2); dies fast if the lag is execution-only |
 | 4 | **Microstructure / market making** (only if there is a book) | imbalance → mid corr ≥ 0.1, wide spread, stale quotes | skeleton `decide()` with `normalise()` microprice | Fair = microprice/wall mid; skew quotes by inventory; take stale quotes only beyond cost |
 | 5 | **Counterparty exploitation** (only if trades/IDs exist) | markout < 0 for a party (they lose) or > 0 (informed) | skeleton `decide()` | Quote to / trade against losers; follow informed; check several horizons |
-| 6 | **Signal combination** | ≥ 2 of the above are individually weak but present | ridge / lasso on ≤ 5 causal features fitted on the dev window; export coefficients as constants | Time-ordered fit only; counts as trials; still through G0–G5 |
+| 6 | **Signal combination** | ≥ 2 of the above are individually weak but present | ridge / lasso on ≤ 5 causal features fitted on the dev window, then shallow XGBoost as the nonlinear challenger (§5.1); export coefficients / trees as constants | Time-ordered fit only; counts as trials; still through G0–G5 |
 
 Run all GO edges at the same time across products (capacity is per product); one shared
 risk gate, net positions per symbol.
@@ -63,13 +63,15 @@ risk gate, net positions per symbol.
 | EWM volatility (instead of GARCH) | **Use** | Same job, no fitting risk |
 | ARIMA / GARCH full fits | Skip | Add parameters without adding edge here |
 | HMM regime models | Skip | Break detectors + stops already cover regime changes |
-| Random forest / LightGBM / XGBoost | **Not tonight** | Small data, overfit, not pasteable without libraries |
-| FNN / LSTM / Transformers / any deep learning | **Never tonight** | Thousands of rows at low signal-to-noise; hundreds of trials sink the Deflated Sharpe; paste box is likely stdlib/numpy; no time to validate |
+| Shallow XGBoost (depth 2–3, ≤ 200 rounds) | **Try** — the one planned nonlinear challenger | Team decision. After a baseline passes S2; one 20–30 min comparison against ridge and the baseline under the §5.1 contract; ship only as a stdlib tree predictor |
+| Random forest / LightGBM | Skip | XGBoost holds the nonlinear slot; a second tree family is more trials, not more evidence |
+| Tiny feed-forward net (e.g. 16/8) | Optional, lowest priority | Only if the XGBoost comparison is done and time remains (§5.1) |
+| LSTM / Transformers / large ensembles | **Not tonight** | Thousands of rows at low signal-to-noise; hundreds of trials sink the Deflated Sharpe; no time to validate |
 
-Reconsider ML only if the briefing reveals an **offline prediction task with a large,
-feature-rich dataset and installable libraries**: ridge first, LightGBM second, time-ordered
-cross-validation, and the full gate pipeline. The trial budget is the reason: with N trials the
-data needed to beat luck grows as ≈ 2 ln N / SR² (300 trials at Sharpe/step 0.05 ⇒ ~4,600 steps).
+ML order of play: baseline mechanism first, ridge second, XGBoost third — each through the
+full gate pipeline with time-ordered folds (§5.1). The trial budget is why the search stays
+small: with N trials the data needed to beat luck grows as ≈ 2 ln N / SR² (300 trials at
+Sharpe/step 0.05 ⇒ ~4,600 steps).
 
 ### Never (strategy level)
 
@@ -106,7 +108,8 @@ uv run python scripts/make_practice_data.py data/practice_book.csv --book
 ## 3. Repository map
 
 ```
-templates/skeleton.py           paste-ready shell: state, LIMITS, SIZE_FRACTION, RISK gate, never-raise
+templates/skeleton.py           paste-ready shell: state, LIMITS, SIZE_FRACTION (target_orders), RISK gate
+                                (drawdown + flatten_after), never-raise; step() orders / step_targets()
 templates/research_template.py  strategy(prices, **params) + GRID; prints ranking + overfit verdict
 src/gqc/pipeline.py             gates G0-G5, plateau/frequency/band search, GO / GO-REDUCED / NO-GO
 src/gqc/overfit.py              PBO (CSCV), PSR, Deflated Sharpe, expected max Sharpe, MinBTL
@@ -116,7 +119,7 @@ src/gqc/diagnostics.py          variance ratio, lead-lag, imbalance, staleness, 
 src/gqc/core.py                 stdlib pairs trader (Kalman/EWM/static hedge) + PairBook
 src/gqc/stats.py backtest.py sweep.py io.py synthetic.py
 scripts/                        CLIs listed in §2
-research/                       one file per idea + LOG.md trial ledger (create at the event)
+research/                       one file per idea + LOG.md trial ledger + event-notes.md (briefing)
 submissions/                    frozen pasted files, one-line note each
 ```
 
@@ -127,7 +130,8 @@ submissions/                    frozen pasted files, one-line note each
 **Driver** owns the pasted file and submissions. **Analyst** runs S0–S2 on new data/ideas.
 **Risk/ops** owns S3/S5: limits, `SIZE_FRACTION`, `RISK`, last-known-good, kill decisions.
 
-Rhythm per round: briefing answers → baseline submitted within 10 min (flat or tiny size if
+Rhythm per round: briefing answers into `research/event-notes.md` (interface style, limits,
+lots, costs, lag, round length → `flatten_after`) → baseline submitted within 10 min (flat or tiny size if
 nothing validated) → S0–S4 loop → **one change per resubmission** → log every trial.
 
 ---
@@ -157,8 +161,8 @@ do not allocate the whole window to model development.
 |---|---|---|
 | Existing static/EWM/Kalman pairs strategy | First baseline when the data supports a spread relationship | Fit/screen pairs on past data only; check stability and costs |
 | Ridge or a small autoregression | First supervised challenger | Few causal features; training-only preprocessing; export coefficients |
-| Shallow XGBoost regression | Feasible optional nonlinear challenger | Offline CPU training, honest time splits, bounded search and verified submission export |
-| Tiny feed-forward network, e.g. hidden layers 16/8 | Optional prepared experiment | Fixed small architecture and seeded training; compare against ridge and the baseline |
+| Shallow XGBoost regression | **Planned** nonlinear challenger (team decision) | Offline CPU training, honest time splits, bounded search and verified submission export |
+| Tiny feed-forward network, e.g. hidden layers 16/8 | Optional, lowest priority — only after the XGBoost comparison | Fixed small architecture and seeded training; compare against ridge and the baseline |
 | LSTM/Transformer or a large ensemble | Defer during the event | Reconsider only with an already tested pipeline, suitable history and enough validation time |
 
 Three trained models or a deep-learning component are not requirements. ARIMA, GARCH and
@@ -173,8 +177,10 @@ chronological validation block for early stopping. Do not turn every parameter i
 axis. Start with roughly 5–15 interpretable features; measure actual training/inference time.
 Allocate at most one 20–30 minute ML comparison after a baseline is accepted, unless the
 round schedule leaves less time. Drop the experiment if fitting, export or validation
-threatens the submission deadline. These models are research directions, not installed
-tooling; their names do not relax dependency or pasted-file restrictions.
+threatens the submission deadline. XGBoost is not a project dependency: run research with an
+ephemeral overlay, `uv run --with xgboost --with scikit-learn python scripts/evaluate_algo.py
+research/<idea>.py DATA.csv` (macOS may need `brew install libomp`). Trying it does not relax
+pasted-file restrictions (point 6).
 
 **Training and evaluation contract:**
 
@@ -265,12 +271,18 @@ alone (PLAYBOOK §7.1).
    lot- and resting-order-aware; `step()` exists so `replay_skeleton.py` can replay them.
    Size check: legs must be ≥ 1 lot (pairs `unit_notional` large enough) or nothing trades —
    `replay_skeleton.py` warns on zero trades and fails on limit breaches, recorded strategy
-   errors, or non-finite orders/PnL/positions. `SIZE_FRACTION` remains a manual target-sizing
-   instruction; setting the constant alone does not scale orders.
+   errors, or non-finite orders/PnL/positions.
+   **Sizing:** write `decide()` as `return target_orders({sym: target}, positions)` — it scales
+   targets by `SIZE_FRACTION` and caps them at `LIMITS`; orders `decide()` returns directly are
+   **not** scaled. Pairs bundles: config `"size_fraction"` scales every target.
+   **Interface:** orders-style platform → `step()`; target-position platform → `step_targets()`
+   (skeleton) or `on_tick()` (pairs). Both hold current positions on error.
 3. **Setting the drawdown stop:** `max_drawdown ≈ 2 × backtest max DD × SIZE_FRACTION` (in the
    platform's PnL units). Tighter stops whipsaw mean-reversion strategies.
 4. **Live:** risk/ops can veto any submission; a kill means flat + last-known-good resubmitted.
-5. **End of round:** if positions are marked at bid/ask or force-closed, flatten before the end.
+5. **End of round:** if positions are marked at bid/ask or force-closed, flatten before the end:
+   `RISK["flatten_after"]` (skeleton) or config `"flatten_after"` (pairs) = total steps − lag −
+   a few steps of margin (tick counts, never wall clock). Flattening still passes every guard.
 
 ## 8. Sizing and leverage policy
 

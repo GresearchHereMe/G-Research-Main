@@ -3,7 +3,9 @@
 
 Config JSON:
   {"pairs": {"name": {"y": "SYM_Y", "x": "SYM_X", "params": {...Params fields...}}},
-   "limits": {"SYM": max_abs_shares}}
+   "limits": {"SYM": max_abs_shares},
+   "size_fraction": 1.0,      # optional: GO 1.0, GO-REDUCED 0.5 (scales every target)
+   "flatten_after": null}     # optional: tick count from which all targets are zero
 
 Usage:
   python scripts/make_submission.py --config cfg.json --out submissions/round1-v1.py
@@ -27,19 +29,26 @@ ADAPTER = '''
 # =====================================================================================
 PAIRS = {pairs}
 LIMITS = {limits}
+SIZE_FRACTION = {size_fraction}  # from evaluate_algo.py: GO 1.0, GO-REDUCED 0.5
+FLATTEN_AFTER = {flatten_after}  # tick count (1 = first call) from which targets are flat
 BOOK = PairBook(PAIRS, LIMITS)
+CLOCK = {{"ticks": 0}}
 
 
 def on_tick(prices, positions=None):
-    """prices: {{symbol: price}} -> {{symbol: target position}}.
+    """prices: {{symbol: price}} -> {{symbol: target position}} scaled by SIZE_FRACTION.
 
     On an internal error returns the CURRENT positions (hold: no new risk) when given, else None.
-    Never feed stale targets or zero targets after a failure.
+    Never feed stale targets or zero targets after a failure. From tick FLATTEN_AFTER on,
+    every known symbol targets zero (end-of-round flatten).
     """
+    CLOCK["ticks"] += 1
+    if FLATTEN_AFTER is not None and CLOCK["ticks"] >= FLATTEN_AFTER:
+        return {{sym: 0.0 for sym in set(positions or {{}}) | set(BOOK.prices)}}
     targets = BOOK.update(prices)
     if targets is None:
         return dict(positions) if positions is not None else None
-    return targets
+    return {{sym: qty * SIZE_FRACTION for sym, qty in targets.items()}}
 
 
 def to_orders(targets, positions, lot=1, outstanding=None):
@@ -90,14 +99,28 @@ def _params_literal(params: dict) -> str:
     return "Params(" + ", ".join(f"{k}={v!r}" for k, v in params.items()) + ")"
 
 
+def _sizing(config: dict) -> tuple[float, int | None]:
+    """Validate the optional size_fraction (0, 1] and flatten_after (tick count >= 1)."""
+    fraction = config.get("size_fraction", 1.0)
+    if isinstance(fraction, bool) or not isinstance(fraction, (int, float)) \
+            or not 0 < fraction <= 1:
+        raise SystemExit(f"size_fraction must be in (0, 1], got {fraction!r}")
+    end = config.get("flatten_after")
+    if end is not None and (isinstance(end, bool) or not isinstance(end, int) or end < 1):
+        raise SystemExit(f"flatten_after must be a tick count >= 1 or null, got {end!r}")
+    return float(fraction), end
+
+
 def render(config: dict) -> str:
+    fraction, end = _sizing(config)
     pairs = ",\n    ".join(
         f"{name!r}: PairSpec({spec['y']!r}, {spec['x']!r}, {_params_literal(spec.get('params', {}))})"
         for name, spec in config["pairs"].items()
     )
     limits = {k: float(v) for k, v in config.get("limits", {}).items()}
     source = CORE.read_text()
-    return source + ADAPTER.format(pairs="{\n    " + pairs + ",\n}", limits=repr(limits))
+    return source + ADAPTER.format(pairs="{\n    " + pairs + ",\n}", limits=repr(limits),
+                                   size_fraction=repr(fraction), flatten_after=repr(end))
 
 
 def verify(path: Path) -> None:
