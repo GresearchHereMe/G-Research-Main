@@ -103,7 +103,12 @@ Agents never skip S2 or S3. A strategy that has not passed G0 **never** trades.
 | G1 overfit | PBO via CSCV, Deflated Sharpe, MinBTL over all configs × frequencies × bands → OK / CAUTION / REJECT | hard if REJECT |
 | G2 robustness | Best config still Sharpe > 0 and ≥ 50 % of base at **2× costs** and at **lag + 1**; total PnL > 0 | hard |
 | G3 stability | Profitable in ≥ 3 of 4 time slices | soft |
-| G4 risk | Total PnL ≥ 2 × max drawdown | soft |
+| G4 risk | Development PnL ≥ 2 × max drawdown | soft |
+| G5 holdout | Selected config profitable on the untouched last `1 − train_frac` (default 30 %) — look once, never re-select after reading it | soft |
+
+Selection, PBO/DSR and G1–G4 use only the development window. G0 inspects the **raw**
+strategy output. Every run of `evaluate_algo.py` / `sweep_pair.py` appends to
+`runs/trials.jsonl`; later runs on the same data file add those trials to N automatically.
 
 **Decision → size:** hard fail → **NO-GO, 0 %**. CAUTION or a soft fail → **GO-REDUCED, 50 %
 of limits**. All pass → **GO, 100 %**. Thresholds: PBO ≤ 0.2 & DSR ≥ 0.95 & T ≥ MinBTL = OK;
@@ -113,9 +118,16 @@ alone (PLAYBOOK §7.1).
 ## 7. Risk management
 
 1. **Pre-trade:** only GO / GO-REDUCED algos trade, at `SIZE_FRACTION` from S2.
-2. **In code (skeleton):** `LIMITS` per symbol (assume every order fills — a breach can cancel all
-   orders on some platforms), `MAX_ORDER` per step, `RISK.max_gross`, `RISK.max_drawdown`
-   (flatten + pause `halt_steps`), never-raise `step()`; errors counted in `STATE.errors`.
+2. **In code (skeleton):** `LIMITS` per symbol checked worst-case (current position **plus all
+   resting orders** via `step(..., outstanding={sym: (buys, sells)})`), `LOTS` (orders round
+   toward zero), `MAX_ORDER` per step, `RISK.max_gross` (risk-reducing orders always allowed),
+   `RISK.max_drawdown` (flatten through the same order guard until flat, then pause
+   `halt_steps`); pass `account_pnl=` when the platform reports PnL. `step()` never raises;
+   on error it sends **no orders** (never stale or zero targets); errors in `STATE.errors`.
+   Pairs bundles: `on_tick(prices, positions)` holds positions on error; `to_orders()` is
+   lot- and resting-order-aware; `step()` exists so `replay_skeleton.py` can replay them.
+   Size check: legs must be ≥ 1 lot (pairs `unit_notional` large enough) or nothing trades —
+   `replay_skeleton.py` warns on zero trades and fails on limit breaches.
 3. **Setting the drawdown stop:** `max_drawdown ≈ 2 × backtest max DD × SIZE_FRACTION` (in the
    platform's PnL units). Tighter stops whipsaw mean-reversion strategies.
 4. **Live:** risk/ops can veto any submission; a kill means flat + last-known-good resubmitted.

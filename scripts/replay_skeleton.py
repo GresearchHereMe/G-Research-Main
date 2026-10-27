@@ -34,10 +34,18 @@ def main() -> int:
     res = replay.replay(ns["step"], prices, args.lag, args.cost_bps)
     equity = np.cumsum(res.pnl)
     max_dd = float(np.max(np.maximum.accumulate(equity) - equity))
-    state = ns.get("STATE")
+    state = ns.get("STATE") or ns.get("BOOK")
     print(f"PnL {res.pnl.sum():.2f}  Sharpe/step {overfit.sharpe(res.pnl):.4f}  max DD {max_dd:.2f}")
     print(f"trades {res.trades}  max |position| {res.max_abs_position}")
     print(f"final positions {res.final_positions}  step errors {getattr(state, 'errors', 'n/a')}")
+    if res.trades == 0:
+        print("WARNING: zero trades. Check decide()/signals, warm-up, and that target sizes are "
+              ">= one lot (e.g. pairs unit_notional large enough for integer shares).")
+    limits = ns.get("LIMITS") or {}
+    breaches = {s: q for s, q in res.max_abs_position.items() if s in limits and q > limits[s]}
+    if breaches:
+        print(f"ERROR: position limits exceeded {breaches}")
+        return 1
     return 0
 
 

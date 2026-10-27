@@ -161,6 +161,10 @@ class PairsTrader:
         y, x = (math.log(price_y), math.log(price_x)) if log else (price_y, price_x)
         z, beta, alpha = self.model.update(y, x)
         self.t += 1
+        if self.t == max(1, self.params.warmup // 2):
+            # Hedge estimators start far from the truth (Kalman beta=0): their early residuals
+            # would inflate the spread volatility for hundreds of steps and mute every signal.
+            self.model.spread = Ewm(self.params.halflife)
         ready = self.t > self.params.warmup and math.isfinite(z)
         position = self.decide(z) if ready else self._go_flat()
         self.last = Signal(position, z, beta, alpha, ready)
@@ -216,18 +220,23 @@ class PairBook:
         self.last_targets: dict[str, float] = {}
         self.errors = 0
 
-    def update(self, prices: Mapping[str, float]) -> dict[str, float]:
-        """Feed one tick of prices; return net target shares per symbol. Never raises."""
+    def update(self, prices: Mapping[str, float]) -> dict[str, float] | None:
+        """Feed one tick; return net target shares per symbol, or None if this tick failed.
+
+        None means "no new risk": the caller must not trade (stale targets could open positions
+        after a failure, and zero targets could force liquidation). Never raises.
+        """
         try:
             self.prices.update({k: v for k, v in prices.items() if _valid(v)})
             for name, spec in self.pairs.items():
                 if spec.y in prices and spec.x in prices:
                     self.signals[name] = self.traders[name].step(prices[spec.y], prices[spec.x])
             self.last_targets = self.combine(self.signals, self.prices)
-        except Exception as exc:  # noqa: BLE001 - submission must never crash; hold last targets
+        except Exception as exc:  # noqa: BLE001 - submission must never crash
             self.errors += 1
-            if self.errors == 1:
-                print(f"PairBook error (holding last targets): {exc!r}", file=sys.stderr)
+            if self.errors <= 3:
+                print(f"PairBook error #{self.errors} (no new orders): {exc!r}", file=sys.stderr)
+            return None
         return dict(self.last_targets)
 
     def combine(self, signals: Mapping[str, Signal], prices: Mapping[str, float]) -> dict[str, float]:

@@ -65,7 +65,9 @@ Every file pasted into the competition platform must:
 - be a **single file**, standard library (+ `numpy` only if confirmed allowed);
 - contain a hard position-limit guard and a top-level `try/except` that returns no orders;
 - use bounded memory (fixed-length windows), no file/network I/O, no wall-clock logic;
-- pass `submit/dryrun.py` on held-out data;
+- pass `scripts/replay_skeleton.py` (bare-`exec` replay; 0 errors, limits respected) and, for
+  pairs bundles, `scripts/make_submission.py`'s isolated smoke check;
+- on any internal error, place **no new orders** (hold), never re-send stale or zero targets;
 - be frozen in `submissions/round-N-vK.py` with a one-line note **before** it is pasted.
 
 ## 7. Competition conduct

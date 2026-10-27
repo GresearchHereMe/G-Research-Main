@@ -30,29 +30,56 @@ LIMITS = {limits}
 BOOK = PairBook(PAIRS, LIMITS)
 
 
-def on_tick(prices):
-    """prices: {{symbol: price}} for this step -> {{symbol: target position in shares}}."""
-    return BOOK.update(prices)
+def on_tick(prices, positions=None):
+    """prices: {{symbol: price}} -> {{symbol: target position}}.
+
+    On an internal error returns the CURRENT positions (hold: no new risk) when given, else None.
+    Never feed stale targets or zero targets after a failure.
+    """
+    targets = BOOK.update(prices)
+    if targets is None:
+        return dict(positions) if positions is not None else None
+    return targets
 
 
-def to_orders(targets, positions, lot=1):
-    """Order quantities (rounded to `lot`) that move current positions to the targets."""
+def to_orders(targets, positions, lot=1, outstanding=None):
+    """Lot-rounded orders towards `targets` that can never breach LIMITS.
+
+    Rounds toward zero (never overshoots the target), then caps assuming every resting order
+    fills: outstanding = {{symbol: (resting_buy_qty, resting_sell_qty)}}. None targets -> {{}}.
+    """
+    if targets is None:
+        return {{}}
+    outstanding = outstanding or {{}}
     orders = {{}}
     for sym, target in targets.items():
-        qty = round((target - positions.get(sym, 0)) / lot) * lot
-        if qty:
-            orders[sym] = qty
+        pos = positions.get(sym, 0)
+        lots = int((target - pos) / lot)  # toward zero
+        limit = LIMITS.get(sym)
+        if limit is not None:
+            buys, sells = outstanding.get(sym, (0, 0))
+            max_buy = math.floor((limit - pos - buys) / lot + 1e-9)
+            max_sell = math.floor((limit + pos - sells) / lot + 1e-9)
+            lots = min(lots, max(max_buy, 0)) if lots > 0 else max(lots, -max(max_sell, 0))
+        if lots:
+            orders[sym] = lots * lot
     return orders
+
+
+def step(prices, positions=None, outstanding=None, lot=1):
+    """Orders-style entry point; also what scripts/replay_skeleton.py replays."""
+    positions = positions or {{}}
+    return to_orders(on_tick(prices, positions), positions, lot, outstanding)
 
 
 # =====================================================================================
 # ADAPTER — edit ONE of these to match the platform's interface (see PLAYBOOK.md §3)
 # =====================================================================================
-# A) Per-tick callback returning target positions:
-#     def strategy(prices): return on_tick(prices)
+# A) Per-tick callback returning target positions (pass positions so errors hold them):
+#     def strategy(prices, positions): return on_tick(prices, positions)
 #
-# B) Per-tick callback returning orders, given current positions:
-#     def strategy(prices, positions): return to_orders(on_tick(prices), positions)
+# B) Per-tick callback returning orders, given current positions (+ resting orders if known):
+#     def strategy(prices, positions): return to_orders(on_tick(prices, positions), positions)
 #
 # C) Whole series at once (offline signal): rows = list of {{symbol: price}} dicts in time order
 #     def positions_for_series(rows): return [on_tick(row) for row in rows]

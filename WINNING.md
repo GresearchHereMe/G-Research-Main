@@ -6,10 +6,9 @@ complicated model earns its place only when it improves that evidence.
 
 This guide teaches the decisions behind the commands in [PLAYBOOK.md](PLAYBOOK.md). Read
 [RULES.md](RULES.md) for binding team policy. The repository review below covers the working
-tree on **27 October 2026**: the core/research code at `f73ca87` and the new pipeline/replay
-and skeleton risk-control additions present during review. The latter are identified below
-as work in progress. Findings are bounded to these inspected versions; they are not fixes
-implemented by this document.
+tree on **27 October 2026**, reviewed against `main` at `660e7c5`, including the new
+pipeline, replay, and skeleton risk controls. Findings are bounded to this inspected version;
+they are not fixes implemented by this document.
 
 The [official event page](https://www.gresearch.com/events/eth-zurich-quant-challenge-2026/)
 confirms a cointegration challenge on unseen real-world data, 17:30–21:30. It does not establish
@@ -261,9 +260,9 @@ orders. Zero *targets* can request liquidation. Define error behavior using the 
 | [backtest.py](src/gqc/backtest.py) | Bar targets, execution delay, linear spread/fee costs, marked PnL | Depth, resting orders, queues, partial fills, impact, or independent leg fills |
 | [sweep.py](src/gqc/sweep.py) | Train-Sharpe neighborhood median ranking | Fully causal static training scores; see section 8 |
 | [research.py](src/gqc/research.py), [overfit.py](src/gqc/overfit.py) | Generic grids and initial PBO/DSR/MinBTL checks | An untouched holdout, all historical trials, or automatic enforcement of causality |
-| [pipeline.py](src/gqc/pipeline.py), work in progress | Candidate integrity probes, cost/delay stress, time-slice and drawdown gates, frequency variants | Proof of causality for every candidate, train-plateau selection, or an untouched holdout |
-| [skeleton.py](templates/skeleton.py) | Empty `decide()`, bounded per-symbol history, clipping/error counter; new optional risk gates in progress | A trading strategy, persistent-order manager, or fill-accurate account PnL |
-| [replay.py](src/gqc/replay.py), work in progress | Replays a `step(book, positions)` file using delayed full fills and linear costs | An order-book matching model or confirmed organiser semantics |
+| [pipeline.py](src/gqc/pipeline.py) | Candidate integrity probes, cost/delay stress, time-slice and drawdown gates, frequency variants | Proof of causality for every candidate, train-plateau selection, or an untouched holdout |
+| [skeleton.py](templates/skeleton.py) | Empty `decide()`, bounded per-symbol history, clipping/error counter; new optional risk gates | A trading strategy, persistent-order manager, or fill-accurate account PnL |
+| [replay.py](src/gqc/replay.py) | Replays a `step(book, positions)` file using delayed full fills and linear costs | An order-book matching model or confirmed organiser semantics |
 | [make_submission.py](scripts/make_submission.py) | Bundles the pairs core/config; isolated stdlib/bare-`exec()` smoke check | Bundling a custom skeleton or validating the final platform adapter |
 | [synthetic.py](src/gqc/synthetic.py) | Seeded pairs, relationship breaks, independent walks, book/bot diagnostic exercises | A reactive multi-agent exchange or realistic passive-fill backtest |
 
@@ -282,6 +281,23 @@ checks do not cover all of the defects below.
 
 These are ordered by their potential to invalidate decisions or submissions. Changes should
 have targeted regression tests and a separate review; no strategy/engine fixes are included here.
+
+> **Status (fix/review-findings PR):** each finding below has a regression test in
+> `tests/test_review_findings.py`. Fixed: **A** (static hedge fitted on a formation window
+> only), **B** (evidence from development data only, scored for the selected config; final test
+> printed once; REJECT suppresses export), **C** (lot-aware, resting-order-aware limit checks in
+> `to_orders()` and the skeleton), **D** (failure ⇒ `None` / hold positions ⇒ no new orders),
+> **E** (drawdown from zero equity, completed round trips only, `open_at_end` flag; generated
+> pairs bundles expose `step()` so `replay_skeleton.py` replays the exact portfolio adapter),
+> **F** (`timestamp`-style headers, numeric/ISO time sorting, gap-aligned lead–lag, sorted book
+> rows for trade matching), **G** (single-candidate PBO = n/a; `runs/trials.jsonl` ledger adds
+> prior trials on the same data to N), **H** (lag-0 replay fills, skeleton equity marks only
+> positions held over the interval or uses platform PnL, gross cap allows reductions, risk
+> exits pass the order guard until flat, G0 checks raw targets, pipeline selects on a
+> development window with a G5 holdout gate).
+> **Still open:** `screen_pairs.py` refits on the later window (treat it as validation);
+> `sweep_pair.py` drops missing paired rows (warns); `pipeline.evaluate()` picks the max-Sharpe
+> config within development rather than a plateau; manual trials still need `research/LOG.md`.
 
 ### A. Static sweep training scores use hindsight — confirmed
 
@@ -363,10 +379,10 @@ the strategy to be causal. Each new strategy needs a prefix/future-perturbation 
 execution lag cannot cure a function that reads future prices. The new pipeline adds sampled
 integrity checks; it does not establish causality for the whole matrix of trials.
 
-### H. The new pipeline/replay/risk additions need specific follow-up — work in progress
+### H. The new pipeline/replay/risk additions need specific follow-up
 
-These files arrived during review. They add useful checks, but the following probes found
-remaining gaps; do not treat a `GO` label as certification of the complete submission path.
+These tools add useful checks, but the following probes found remaining gaps; do not treat a
+`GO` label as certification of the complete submission path.
 
 - [`pipeline.evaluate()`](src/gqc/pipeline.py#L125) selects the full-input maximum Sharpe,
   without a chronological split or plateau. Supplying the final test there consumes it.

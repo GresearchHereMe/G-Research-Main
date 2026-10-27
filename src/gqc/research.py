@@ -67,37 +67,56 @@ def choose_blocks(n_rows: int, min_rows_per_block: int = 20) -> int:
     return 4
 
 
-def verdict(pbo: float, dsr: float, n_rows: int, min_btl: int) -> str:
-    if pbo > 0.5 or dsr < 0.5:
+def verdict(pbo: float | None, dsr: float, n_rows: int, min_btl: int) -> str:
+    """Team policy gates; pbo=None when there is no selection to assess (one candidate)."""
+    if (pbo is not None and pbo > 0.5) or dsr < 0.5:
         return ("REJECT the tuning: the search is mostly fitting noise. Use the simplest/default "
                 "parameters, fewer knobs, smaller size.")
-    if pbo > 0.2 or dsr < 0.95 or n_rows < min_btl:
+    if (pbo is not None and pbo > 0.2) or dsr < 0.95 or n_rows < min_btl:
         return ("CAUTION: material overfitting risk. Prefer plateau parameters, shrink the grid, "
                 "trade smaller.")
     return "OK: the edge survives PBO and Deflated Sharpe. Size up to limits."
 
 
+def _pbo_lines(matrix: np.ndarray, n_blocks: int) -> tuple[float | None, list[str]]:
+    if matrix.shape[1] < 2:
+        return None, ["PBO  n/a (one candidate: no selection to assess)"]
+    res = overfit.cscv_pbo(matrix, n_blocks=n_blocks)
+    med_is = float(np.median(res.is_selected))
+    decay = float(np.median(res.oos_selected)) / med_is if med_is > 0 else 0.0
+    return res.pbo, [
+        f"PBO  P(in-sample winner below out-of-sample median): {res.pbo:.2f} ({res.n_combos} splits)",
+        (f"P(in-sample winner loses out of sample): {res.prob_oos_loss:.2f}; "
+         f"median OOS/IS Sharpe of the winner: {decay:.2f} (1 = no decay, <=0 = luck)"),
+    ]
+
+
 def overfit_report(
-    configs: Sequence[Mapping], matrix: np.ndarray, n_blocks: int | None = None
+    configs: Sequence[Mapping],
+    matrix: np.ndarray,
+    n_blocks: int | None = None,
+    selected: int | None = None,
+    prior_trials: int = 0,
 ) -> list[str]:
+    """PBO over the matrix; DSR/MinBTL for `selected` (default: max Sharpe) with
+    N = columns + prior_trials (trials already run on the same data, see gqc.registry)."""
     t, n = matrix.shape
     s = n_blocks or choose_blocks(t)
     srs = np.atleast_1d(overfit.sharpe(matrix, axis=0))
-    best = int(np.argmax(srs))
-    res = overfit.cscv_pbo(matrix, n_blocks=s)
+    pick = int(np.argmax(srs)) if selected is None else selected
+    n_total = n + max(prior_trials, 0)
     sr_var = float(np.var(srs, ddof=1)) if n > 1 else 1.0 / t
-    dsr = overfit.deflated_sharpe(matrix[:, best], n, sr_var)
-    min_btl = overfit.min_backtest_length(n, float(srs[best]))
-    med_is = float(np.median(res.is_selected))
-    decay = float(np.median(res.oos_selected)) / med_is if med_is > 0 else 0.0
+    dsr = overfit.deflated_sharpe(matrix[:, pick], n_total, sr_var)
+    min_btl = overfit.min_backtest_length(n_total, float(srs[pick]))
+    pbo, pbo_lines = _pbo_lines(matrix, s)
+    label = "Best by Sharpe" if selected is None else "Selected"
     return [
-        f"== Overfitting check: N={n} configs tried, T={t} steps, CSCV S={s} ({res.n_combos} splits)",
-        f"PBO  P(in-sample winner below out-of-sample median): {res.pbo:.2f}",
-        (f"P(in-sample winner loses out of sample): {res.prob_oos_loss:.2f}; "
-        f"median OOS/IS Sharpe of the winner: {decay:.2f} (1 = no decay, <=0 = luck)"),
-        (f"Best by Sharpe: {dict(configs[best])}  Sharpe/step {srs[best]:.4f}, "
-        f"PnL {matrix[:, best].sum():.2f}"),
-        f"Deflated Sharpe P(true Sharpe > best-of-{n}-noise): {dsr:.3f}",
-        f"MinBTL at this Sharpe with {n} trials: {min_btl} steps (have {t})",
-        f"VERDICT: {verdict(res.pbo, dsr, t, min_btl)}",
+        (f"== Overfitting check: N={n} configs here + {prior_trials} prior = {n_total}, "
+        f"T={t} steps, CSCV S={s}"),
+        *pbo_lines,
+        (f"{label}: {dict(configs[pick])}  Sharpe/step {srs[pick]:.4f}, "
+         f"PnL {matrix[:, pick].sum():.2f}"),
+        f"Deflated Sharpe P(true Sharpe > best-of-{n_total}-noise): {dsr:.3f}",
+        f"MinBTL at this Sharpe with {n_total} trials: {min_btl} steps (have {t})",
+        f"VERDICT: {verdict(pbo, dsr, t, min_btl)}",
     ]

@@ -78,20 +78,21 @@ def _round_trips(net: np.ndarray, exec_pos: np.ndarray) -> list[float]:
                 trips.append(current - (net[t] if side[t] else 0.0))
             current = net[t] if side[t] else 0.0
             active = int(side[t] != 0)
-    if active:
-        trips.append(current)
-    return trips
+    return trips  # completed episodes only; an episode still open at the end is excluded
 
 
 def _metrics(net: np.ndarray, costs: np.ndarray, exec_pos: np.ndarray) -> dict:
-    equity = np.cumsum(net)
+    """Open inventory at the end is marked at the last price, NOT closed (check the organiser's
+    terminal rule); `open_at_end` flags it. Drawdown is measured from the zero starting equity."""
+    equity = np.concatenate([[0.0], np.cumsum(net)])
     sd = float(np.std(net))
     trips = _round_trips(net, exec_pos)
     return {
-        "total_pnl": float(equity[-1]) if len(equity) else 0.0,
+        "total_pnl": float(equity[-1]),
         "costs": float(np.sum(costs)),
         "sharpe": float(np.mean(net) / sd * math.sqrt(len(net))) if sd > 0 else 0.0,
-        "max_drawdown": float(np.max(np.maximum.accumulate(equity) - equity)) if len(equity) else 0.0,
+        "max_drawdown": float(np.max(np.maximum.accumulate(equity) - equity)),
+        "open_at_end": bool(len(exec_pos) and np.any(exec_pos[-1] != 0)),
         "round_trips": len(trips),
         "win_rate": float(np.mean([p > 0 for p in trips])) if trips else 0.0,
         "avg_trip_pnl": float(np.mean(trips)) if trips else 0.0,

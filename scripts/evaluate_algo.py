@@ -18,9 +18,10 @@ import importlib.util
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO / "src"))
 
-from gqc import io, pipeline
+from gqc import io, pipeline, registry
 
 
 def load_module(path: Path):
@@ -39,15 +40,26 @@ def main() -> int:
     parser.add_argument("--lag", type=int, default=1)
     parser.add_argument("--frequencies", default="1,2,5,10")
     parser.add_argument("--bands", default="0")
+    parser.add_argument("--train-frac", type=float, default=0.7,
+                        help="development share; the rest is the look-once holdout")
+    parser.add_argument("--runs-dir", type=Path, default=REPO / "runs")
     args = parser.parse_args()
     algo = load_module(args.algo)
     _, prices = io.load_prices(args.csv)
+    fp = registry.fingerprint(args.csv)
+    prior = registry.total_trials(args.runs_dir, fp)
+    frequencies = [int(k) for k in args.frequencies.split(",")]
+    bands = [float(b) for b in args.bands.split(",")]
     ev = pipeline.evaluate(
         algo.strategy, prices, algo.GRID, cost_bps=args.cost_bps, lag=args.lag,
-        frequencies=[int(k) for k in args.frequencies.split(",")],
-        bands=[float(b) for b in args.bands.split(",")],
+        frequencies=frequencies, bands=bands, train_frac=args.train_frac, prior_trials=prior,
     )
-    print(f"{args.algo.name} on {args.csv.name}: cost {args.cost_bps} bps, lag {args.lag}\n")
+    n_configs = len(frequencies) * len(bands)
+    for values in algo.GRID.values():
+        n_configs *= len(values)
+    registry.record(args.runs_dir, fp, args.algo.name, n_configs, ev.decision)
+    print(f"{args.algo.name} on {args.csv.name}: cost {args.cost_bps} bps, lag {args.lag}, "
+          f"{prior} prior trials on this data\n")
     for line in ev.lines:
         print(line)
     return 0

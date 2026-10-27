@@ -83,6 +83,9 @@ def column(rows: list[dict], name: str) -> np.ndarray:
 def book_section(groups: dict[str, list[dict]], cols: dict[str, str]) -> dict[str, dict]:
     books = {}
     for sym, rows in groups.items():
+        if "time" in cols:  # trade matching uses searchsorted: book rows must be time-sorted
+            keys = time_keys([r[cols["time"]] for r in rows])
+            rows = [rows[i] for i in np.argsort(keys, kind="stable")]
         bid, ask = column(rows, cols["bid"]), column(rows, cols["ask"])
         sizes = [column(rows, cols[k]) if k in cols else None for k in ("bid_size", "ask_size")]
         for line in dg.book_report(sym, bid, ask, *sizes):
